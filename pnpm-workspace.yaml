@@ -1,0 +1,43 @@
+pmOnFail: ignore
+
+minimumReleaseAgeExclude:
+  - '@next/*'
+  - next
+  - baseline-browser-mapping@2.11.33
+
+allowBuilds:
+  esbuild: true
+
+overrides:
+  '@modelcontextprotocol/sdk@>=1.12.0 <1.31.0': ^1.31.0
+  '@modelcontextprotocol/sdk@>=1.24.0 <1.32.0': ^1.32.0
+  '@modelcontextprotocol/sdk@>=1.3.0 <1.32.0': ^1.32.0
+  body-parser@>=2.0.0 <2.4.0: ^2.4.0
+  brace-expansion@>=3.0.0 <5.0.7: ^5.0.7
+  brace-expansion@>=4.0.0 <5.0.10: ^5.0.10
+  brace-expansion@>=4.0.0 <5.0.11: ^5.0.11
+  brace-expansion@>=4.0.0 <5.0.8: ^5.0.8
+  brace-expansion@>=4.0.0 <5.0.9: ^5.0.9
+  browserslist@<=4.28.6: ^4.28.7
+  baseline-browser-mapping@<2.11.0: ^2.11.33
+  fast-uri@>=3.0.0 <3.1.3: ^3.1.3
+  fast-uri@>=3.0.0 <3.1.5: ^3.1.5
+  fast-uri@>=3.0.0 <3.1.6: ^3.1.6
+  fast-uri@>=3.0.0 <3.1.7: ^3.1.7
+  fast-uri@>=3.0.0 <=3.1.3: ^3.1.4
+  fast-uri@>=3.1.2 <3.1.6: ^3.1.6
+  ip-address@<=10.3.0: ^10.3.1
+  js-yaml@>=4.0.0 <4.3.0: ^4.3.0
+  js-yaml@>=4.0.0 <4.3.1: ^4.3.1
+  js-yaml@>=4.0.0 <4.3.2: ^4.3.2
+  nanoid@<3.3.12: ^3.3.12
+  nanoid@<3.3.16: ^3.3.16
+  nanoid@<3.3.18: ^3.3.18
+  postcss@<=8.5.11: ^8.5.12
+  postcss@<=8.5.17: ^8.5.18
+  proxy-addr@>=1.1.0 <2.0.8: ^2.0.8
+  source-map-js@>=1.0.0 <1.2.2: ^1.2.2
+  undici@>=7.0.0 <7.29.1: ^7.29.1
+  undici@>=7.18.0 <7.30.1: ^7.30.1
+  undici@>=7.24.1 <7.29.1: ^7.29.1
+  zod@<4.6.6: ^4.6.6
