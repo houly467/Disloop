@@ -148,9 +148,14 @@ export async function POST(request: NextRequest) {
         reporterId: access.user.id,
         contentUrl: target.contentUrl,
       })
-      if (!(await sendReportWebhook(webhook, payload))) {
-        console.warn('[reports] webhook delivery failed after retry', { reportId: saved.id, category: input.category })
-      }
+      const delivered = await sendReportWebhook(webhook, payload, (attempt, status) => {
+        console.info('[reports] webhook attempt', {
+          category: input.category,
+          status: status ?? 'network_error',
+          attempt,
+        })
+      })
+      if (!delivered) console.warn('[reports] webhook delivery failed after retry', { category: input.category })
     }
 
     return NextResponse.json({ ok: true, reportId: saved.id }, { headers: { 'Cache-Control': 'no-store' } })

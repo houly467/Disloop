@@ -51,6 +51,8 @@ describe('report helpers', () => {
     expect(selectReportWebhook('scam', { REPORT_WEBHOOK_SCAM: 'https://example.test/scam-webhook', REPORT_WEBHOOK_OTHER: fallback }))
       .toBe('https://example.test/scam-webhook')
     expect(selectReportWebhook('scam', {})).toBeNull()
+    expect(selectReportWebhook('scam', { REPORT_WEBHOOK_SCAM: '  https://example.test/scam-webhook \r\n' }))
+      .toBe('https://example.test/scam-webhook')
   })
 
   it('keeps reporter details in the moderator webhook payload and disables mentions', () => {
@@ -87,6 +89,23 @@ describe('report helpers', () => {
       await expect(sendReportWebhook('https://example.test/fake-webhook', payload)).resolves.toBe(true)
       expect(fetchMock).toHaveBeenCalledTimes(2)
       expect(JSON.stringify(payload)).not.toContain('fake-webhook')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('reports status and attempt without returning or logging the webhook URL', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 })
+    const onAttempt = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      await expect(sendReportWebhook(' https://example.test/fake-webhook ', {
+        embeds: [],
+        allowed_mentions: { parse: [] },
+      }, onAttempt)).resolves.toBe(false)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(fetchMock.mock.calls[0][0]).toBe('https://example.test/fake-webhook')
+      expect(onAttempt.mock.calls).toEqual([[1, 404], [2, 404]])
     } finally {
       vi.unstubAllGlobals()
     }

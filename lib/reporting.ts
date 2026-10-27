@@ -64,7 +64,9 @@ export function selectReportWebhook(
   category: (typeof reportCategories)[number],
   env: Record<string, string | undefined> = process.env,
 ) {
-  return env[webhookEnvNames[category]] || env.REPORT_WEBHOOK_OTHER || null
+  const categoryWebhook = env[webhookEnvNames[category]]?.trim()
+  const fallbackWebhook = env.REPORT_WEBHOOK_OTHER?.trim()
+  return categoryWebhook || fallbackWebhook || null
 }
 
 export function reportCategoryLabel(category: (typeof reportCategories)[number]) {
@@ -106,19 +108,24 @@ export function buildReportWebhookPayload(report: {
   }
 }
 
-export async function sendReportWebhook(url: string, payload: ReturnType<typeof buildReportWebhookPayload>) {
+export async function sendReportWebhook(
+  url: string,
+  payload: ReturnType<typeof buildReportWebhookPayload>,
+  onAttempt?: (attempt: number, status: number | null) => void,
+) {
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
-      const response = await fetch(url, {
+      const response = await fetch(url.trim(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
         cache: 'no-store',
         signal: AbortSignal.timeout(8_000),
       })
+      onAttempt?.(attempt, response.status)
       if (response.ok) return true
     } catch {
-      // Retry once without including the webhook URL or report text in logs.
+      onAttempt?.(attempt, null)
     }
   }
   return false
