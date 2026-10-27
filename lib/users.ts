@@ -1,6 +1,6 @@
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { disloopUserBadges, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
+import { disloopUserFlair, disloopUsers } from '@/lib/db/schema'
 import type { DiscordIdentity } from '@/lib/discord'
 import type { ProfileDetails } from '@/lib/profile'
 import { getFollowCounts } from '@/lib/social-follows'
@@ -72,9 +72,8 @@ export async function getMemberDirectory(): Promise<CommunityMember[]> {
     .limit(50)
 }
 
-export function normalizeUsername(value: string, allowShort = false) {
+function normalizeUsernameWithMinimum(value: string, minimumLength: number) {
   const username = value.trim().toLocaleLowerCase('en-US')
-  const minimumLength = allowShort ? 1 : 3
   if (username.length < minimumLength || username.length > 20
     || !/^(?:[a-z0-9]|[a-z0-9](?:[a-z0-9._]*[a-z0-9]))$/.test(username)
     || /[._]{2}/.test(username)
@@ -82,8 +81,30 @@ export function normalizeUsername(value: string, allowShort = false) {
   return username
 }
 
+export function normalizeUsername(value: string, isVerified = false) {
+  return normalizeUsernameWithMinimum(value, isVerified ? 2 : 3)
+}
+
+export function normalizeUsernameForLookup(value: string) {
+  return normalizeUsernameWithMinimum(value, 1)
+}
+
+export function generateInitialUsernameBase(identity: DiscordIdentity) {
+  const source = (identity.global_name || identity.username).toLowerCase()
+  let base = source
+    .replace(/[^a-z0-9._]/g, '')
+    .replace(/[._]{2,}/g, '_')
+    .replace(/^[._]+|[._]+$/g, '')
+    .slice(0, 20)
+
+  if (base.length < 4 || RESERVED_USERNAMES.has(base)) {
+    base = `member${identity.id.slice(-4)}`
+  }
+  return base
+}
+
 export async function getPublicUserByUsername(username: string) {
-  const normalizedUsername = normalizeUsername(username, true)
+  const normalizedUsername = normalizeUsernameForLookup(username)
   if (!normalizedUsername) return null
 
   const [user] = await db
@@ -112,14 +133,6 @@ export async function getPublicUserByUsername(username: string) {
     .leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id))
     .where(eq(disloopUsers.usernameLower, normalizedUsername))
     .limit(1)
-
-  if (user && normalizedUsername.length < 3) {
-    const [verifiedBadge] = await db.select({ userId: disloopUserBadges.userId })
-      .from(disloopUserBadges)
-      .where(and(eq(disloopUserBadges.userId, user.id), eq(disloopUserBadges.badgeId, 'verified')))
-      .limit(1)
-    if (!verifiedBadge) return null
-  }
 
   if (!user) return null
   const followCounts = await getFollowCounts(user.id)
@@ -158,7 +171,7 @@ export async function upsertDiscordUser(identity: DiscordIdentity) {
     return updated
   }
 
-  const base = baseUsername(identity)
+  const base = generateInitialUsernameBase(identity)
   for (let suffix = 0; suffix < 10_000; suffix += 1) {
     const suffixText = suffix === 0 ? '' : String(suffix)
     const candidate = `${base.slice(0, 20 - suffixText.length)}${suffixText}`

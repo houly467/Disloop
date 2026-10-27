@@ -15,7 +15,10 @@ export function memberErrorResponse(code: MemberFailureCode, status: number, err
   return NextResponse.json({ error: code, reason: code }, { status, headers: { 'Cache-Control': 'no-store' } })
 }
 
-export async function requireLoggedInServerMember(request: NextRequest): Promise<ServerMemberResult> {
+export async function requireLoggedInServerMember(
+  request: NextRequest,
+  options: { allowPendingOnboarding?: boolean } = {},
+): Promise<ServerMemberResult> {
   if (!isSameOriginRequest(request)) {
     return { ok: false, response: memberErrorResponse('invalid_origin', 403) }
   }
@@ -31,7 +34,9 @@ export async function requireLoggedInServerMember(request: NextRequest): Promise
 
   try {
     if (!(await checkDiscordMembership(session.user.discordId))) {
-      return { ok: false, response: memberErrorResponse('not_a_member', 403) }
+      if (!(options.allowPendingOnboarding && session.user.dateOfBirth === null)) {
+        return { ok: false, response: memberErrorResponse('not_a_member', 403) }
+      }
     }
   } catch (error) {
     return { ok: false, response: memberErrorResponse('discord_unavailable', 503, error) }

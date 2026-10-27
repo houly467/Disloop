@@ -46,7 +46,7 @@ import { PATCH as pinComment } from '@/app/api/social/comments/[id]/route'
 import { awardXp } from '@/lib/gamification'
 import { buildUploadToken } from '@/lib/blob-uploads'
 import { RichText } from '@/components/mention-textarea'
-import { normalizeUsername } from '@/lib/users'
+import { generateInitialUsernameBase, normalizeUsername, normalizeUsernameForLookup } from '@/lib/users'
 import { requireLoggedInServerMember } from '@/lib/server-member'
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
@@ -71,6 +71,41 @@ function selectResult(result: unknown[]) {
   query.where = vi.fn(() => query)
   query.limit = vi.fn().mockResolvedValue(result)
   return query
+}
+
+function prepareProfileUsernameUpdate(options: { currentUsername?: string; verified?: boolean; updateError?: Error } = {}) {
+  const currentUsername = options.currentUsername ?? 'current.user'
+  mocks.getCurrentUser.mockResolvedValue({
+    id: USER_ID,
+    discordId: 'discord-user',
+    isMember: true,
+    username: currentUsername,
+  })
+  mocks.db.select.mockImplementation(() => selectResult(options.verified ? [{ userId: USER_ID }] : []))
+  const returnedProfile = {
+    username: currentUsername,
+    displayName: 'Member One',
+    dateOfBirth: '2000-01-01',
+  }
+  const returning = vi.fn().mockImplementation(() => options.updateError
+    ? Promise.reject(options.updateError)
+    : Promise.resolve([returnedProfile]))
+  const where = vi.fn(() => ({ returning }))
+  const set = vi.fn(() => ({ where }))
+  mocks.db.update.mockReturnValue({ set })
+  return { set, returning }
+}
+
+function profileUpdateBody(username: string) {
+  return {
+    username,
+    displayName: 'Member One',
+    bio: '',
+    location: '',
+    socialLinks: {},
+    publicVisitCount: false,
+    hideLikes: false,
+  }
 }
 
 function makeXpTransaction(eventAlreadyRecorded: () => boolean, markRecorded: () => void, xpAfter = 3) {
@@ -120,19 +155,41 @@ function makeXpTransaction(eventAlreadyRecorded: () => boolean, markRecorded: ()
 }
 
 describe('security regression checks', () => {
-  it('allows 3+ character usernames for everyone and reserves 1–2 characters for verified users', () => {
+  it('enforces a 3-character minimum for non-verified usernames and a 2-character minimum for verified usernames', () => {
     expect(normalizeUsername('abc')).toBe('abc')
     expect(normalizeUsername('ab')).toBeNull()
     expect(normalizeUsername('abc', true)).toBe('abc')
     expect(normalizeUsername('ab', true)).toBe('ab')
-    expect(normalizeUsername('a', true)).toBe('a')
+    expect(normalizeUsername('a')).toBeNull()
+    expect(normalizeUsername('1', true)).toBeNull()
     expect(normalizeUsername('a..b', true)).toBeNull()
     expect(normalizeUsername('admin', true)).toBeNull()
+    expect(normalizeUsername('MiXeD')).toBe('mixed')
+    expect(normalizeUsernameForLookup('1')).toBe('1')
+  })
+
+  it('falls back to a valid initial username when Discord names are shorter than four characters', () => {
+    for (const shortName of ['a', '7', 'ab']) {
+      const generated = generateInitialUsernameBase({
+        id: '123456789012345678',
+        username: shortName,
+        global_name: shortName,
+      })
+      expect(generated.length).toBeGreaterThanOrEqual(3)
+      expect(generated.length).toBeLessThanOrEqual(20)
+      expect(generated).toMatch(/^[a-z0-9][a-z0-9._]*[a-z0-9]$/)
+    }
   })
 
   beforeEach(() => {
     vi.resetAllMocks()
-    mocks.getCurrentUser.mockResolvedValue({ id: USER_ID, discordId: 'discord-user', isMember: true })
+    mocks.getCurrentUser.mockResolvedValue({
+      id: USER_ID,
+      discordId: 'discord-user',
+      isMember: true,
+      username: 'current.user',
+      dateOfBirth: null,
+    })
     mocks.getCurrentUserResult.mockImplementation(async () => ({ status: 'ok', user: await mocks.getCurrentUser() }))
     process.env.BLOB_READ_WRITE_TOKEN = 'test-blob-token'
     mocks.rateLimitResponse.mockResolvedValue(null)
@@ -188,6 +245,106 @@ describe('security regression checks', () => {
     }))
 
     expect(response.status).toBe(400)
+    expect(mocks.db.update).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('rejects one-character usernames even when verified=%s', async (verified) => {
+    prepareProfileUsernameUpdate({ verified })
+    const response = await updateProfile(request('http://localhost:3000/api/profile', 'PATCH', profileUpdateBody('x')))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      error: 'username_minimum_length',
+      message: 'Usernames need at least 2 characters',
+    })
+    expect(mocks.db.update).not.toHaveBeenCalled()
+  })
+
+  it('rejects a new two-character username for a member without the verified badge', async () => {
+    prepareProfileUsernameUpdate()
+    const response = await updateProfile(request('http://localhost:3000/api/profile', 'PATCH', profileUpdateBody('xy')))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      error: 'username_verification_required',
+      message: 'Usernames need at least 3 characters',
+    })
+    expect(mocks.db.update).not.toHaveBeenCalled()
+  })
+
+  it('accepts a two-character username for a verified member', async () => {
+    const { set } = prepareProfileUsernameUpdate({ verified: true })
+    const response = await updateProfile(request('http://localhost:3000/api/profile', 'PATCH', profileUpdateBody('xy')))
+
+    expect(response.status).toBe(200)
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ usernameLower: 'xy', usernameDisplay: 'xy' }))
+  })
+
+  it('accepts and lowercases usernames of at least three characters', async () => {
+    const { set } = prepareProfileUsernameUpdate()
+    const response = await updateProfile(request('http://localhost:3000/api/profile', 'PATCH', profileUpdateBody('MiXeD')))
+
+    expect(response.status).toBe(200)
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ usernameLower: 'mixed', usernameDisplay: 'MiXeD' }))
+  })
+
+  it('continues enforcing case-insensitive uniqueness in the database', async () => {
+    const duplicateError = Object.assign(new Error('duplicate username'), { code: '23505' })
+    prepareProfileUsernameUpdate({ updateError: duplicateError })
+    const response = await updateProfile(request('http://localhost:3000/api/profile', 'PATCH', profileUpdateBody('MiXeD')))
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ error: 'username_taken' })
+  })
+
+  it('preserves an existing short username when the user does not change it', async () => {
+    const { set } = prepareProfileUsernameUpdate({ currentUsername: 'ss' })
+    const response = await updateProfile(request('http://localhost:3000/api/profile', 'PATCH', profileUpdateBody('ss')))
+
+    expect(response.status).toBe(200)
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ usernameLower: 'ss', usernameDisplay: 'ss' }))
+    expect(mocks.db.select).not.toHaveBeenCalled()
+  })
+
+  it('allows an authenticated nonmember to complete a profile while date of birth is unset', async () => {
+    const { set } = prepareProfileUsernameUpdate()
+    mocks.getCurrentUser.mockResolvedValue({
+      id: USER_ID,
+      discordId: 'discord-user',
+      isMember: false,
+      username: 'current.user',
+      dateOfBirth: null,
+    })
+    mocks.checkDiscordMembership.mockResolvedValue(false)
+
+    const response = await updateProfile(request('http://localhost:3000/api/profile', 'PATCH', {
+      ...profileUpdateBody('new.member'),
+      dateOfBirth: '2000-01-01',
+    }))
+
+    expect(response.status).toBe(200)
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({
+      usernameLower: 'new.member',
+      displayName: 'Member One',
+      dateOfBirth: '2000-01-01',
+    }))
+    expect(mocks.checkDiscordMembership).toHaveBeenCalledWith('discord-user')
+  })
+
+  it('continues to block profile edits for nonmembers who already completed onboarding', async () => {
+    mocks.getCurrentUser.mockResolvedValue({
+      id: USER_ID,
+      discordId: 'discord-user',
+      isMember: false,
+      username: 'current.user',
+      dateOfBirth: '2000-01-01',
+    })
+    mocks.checkDiscordMembership.mockResolvedValue(false)
+
+    const response = await updateProfile(request('http://localhost:3000/api/profile', 'PATCH', profileUpdateBody('new.member')))
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ error: 'not_a_member' })
     expect(mocks.db.update).not.toHaveBeenCalled()
   })
 

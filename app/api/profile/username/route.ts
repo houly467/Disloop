@@ -3,26 +3,33 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { disloopUserBadges, disloopUsers } from '@/lib/db/schema'
 import { getCurrentUser } from '@/lib/session'
-import { normalizeUsername } from '@/lib/users'
+import { normalizeUsernameForLookup } from '@/lib/users'
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: { 'Cache-Control': 'no-store' } })
 
   const username = request.nextUrl.searchParams.get('username')?.slice(0, 32) ?? ''
-  const normalizedUsername = normalizeUsername(username, true)
+  const normalizedUsername = normalizeUsernameForLookup(username)
   if (!normalizedUsername) {
     return NextResponse.json({ valid: false, available: false, reason: 'invalid' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
   }
 
-  if (normalizedUsername.length < 3) {
+  const isExistingUsername = normalizedUsername === normalizeUsernameForLookup(user.username)
+  if (normalizedUsername.length < 2 && !isExistingUsername) {
+    return NextResponse.json({ valid: false, available: false, reason: 'minimum_length', minimumLength: 2 }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+  }
+
+  let isVerified = false
+  if (normalizedUsername.length <= 2) {
     const [verifiedBadge] = await db.select({ userId: disloopUserBadges.userId })
       .from(disloopUserBadges)
       .where(and(eq(disloopUserBadges.userId, user.id), eq(disloopUserBadges.badgeId, 'verified')))
       .limit(1)
-    if (!verifiedBadge) {
-      return NextResponse.json({ valid: false, available: false, reason: 'verified_required' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
-    }
+    isVerified = Boolean(verifiedBadge)
+  }
+  if (normalizedUsername.length === 2 && !isVerified && !isExistingUsername) {
+    return NextResponse.json({ valid: false, available: false, reason: 'verified_required', minimumLength: 3 }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
   }
 
   const [existing] = await db.select({ id: disloopUsers.id })
@@ -30,5 +37,10 @@ export async function GET(request: NextRequest) {
     .where(and(eq(disloopUsers.usernameLower, normalizedUsername), ne(disloopUsers.id, user.id)))
     .limit(1)
 
-  return NextResponse.json({ valid: true, available: !existing }, { headers: { 'Cache-Control': 'no-store' } })
+  return NextResponse.json({
+    valid: true,
+    available: !existing,
+    minimumLength: isVerified ? 2 : 3,
+    existingShortUsername: isExistingUsername && normalizedUsername.length < 2,
+  }, { headers: { 'Cache-Control': 'no-store' } })
 }

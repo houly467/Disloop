@@ -6,7 +6,7 @@ import { disloopUserBadges, disloopUsers } from '@/lib/db/schema'
 import { requireLoggedInServerMember } from '@/lib/server-member'
 import { rateLimitResponse } from '@/lib/rate-limit'
 import { isSameOriginRequest } from '@/lib/security'
-import { normalizeUsername } from '@/lib/users'
+import { normalizeUsernameForLookup } from '@/lib/users'
 import { PROFILE_LINK_FIELDS, type ProfileLinkField, type SocialLinks } from '@/lib/profile'
 import { findMentionUsernames, notifyMentions } from '@/lib/social'
 import { parseJsonBody } from '@/lib/validation'
@@ -55,7 +55,7 @@ function isValidDateOfBirth(value: string) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const access = await requireLoggedInServerMember(request)
+  const access = await requireLoggedInServerMember(request, { allowPendingOnboarding: true })
   if (!access.ok) return access.response
   const user = access.user
   const rateLimit = await rateLimitResponse(`profile:${user.id}`, 10, 3600)
@@ -75,7 +75,7 @@ export async function PATCH(request: NextRequest) {
   }).strict())
   if (!data) return NextResponse.json({ error: 'invalid_profile' }, { status: 400 })
   const username = data.username
-  const usernameLower = normalizeUsername(username, true)
+  const usernameLower = normalizeUsernameForLookup(username)
   const displayName = data.displayName
   const dateOfBirth = data.dateOfBirth
   const profileAvatarUrl = data.profileAvatarUrl
@@ -93,12 +93,19 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'invalid_profile' }, { status: 400 })
   }
 
-  if (usernameLower.length < 3) {
+  const isExistingUsername = usernameLower === normalizeUsernameForLookup(user.username)
+  if (usernameLower.length < 2 && !isExistingUsername) {
+    return NextResponse.json({ error: 'username_minimum_length', message: 'Usernames need at least 2 characters' }, { status: 400 })
+  }
+
+  if (usernameLower.length === 2 && !isExistingUsername) {
     const [verifiedBadge] = await db.select({ userId: disloopUserBadges.userId })
       .from(disloopUserBadges)
       .where(and(eq(disloopUserBadges.userId, user.id), eq(disloopUserBadges.badgeId, 'verified')))
       .limit(1)
-    if (!verifiedBadge) return NextResponse.json({ error: 'username_verification_required' }, { status: 400 })
+    if (!verifiedBadge) {
+      return NextResponse.json({ error: 'username_verification_required', message: 'Usernames need at least 3 characters' }, { status: 400 })
+    }
   }
 
   try {
