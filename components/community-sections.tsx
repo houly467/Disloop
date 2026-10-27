@@ -463,12 +463,13 @@ const reelCopy = {
   ar: { title: 'ريلز', description: 'مقاطع قصيرة يشاركها أفراد المجتمع.', empty: 'ابدأ مشاركة شيء جميل.', emptyBody: 'شارك مقطعًا قصيرًا مع المجتمع.', publish: 'مشاركة ريل', caption: 'أضف تعليقًا', file: 'اختر مقطعًا', fileHint: 'MP4 أو WebM · حتى 40 ميغابايت · حتى ٦٠ ثانية', upload: 'رفع المقطع', publishing: 'جارٍ النشر…', like: 'إعجاب', liked: 'إلغاء الإع��اب', signIn: 'سجّل الدخول عبر Discord للمشاركة والتفاعل.', join: 'انضم إلى سيرفر Discord للنشر.', membershipUnavailable: 'تعذر التحقق من عضويتك في Discord. حاول مرة أخرى.', signInAgain: 'انتهت جلستك. سجّل الدخول مرة أخرى.', uploadFailed: 'تعذر رفع الفيديو. حاول مرة أخرى.', invalid: 'تحقق من التعليق ثم حاول مرة أخرى.', tooManyTags: 'يمكن أن يحتوي الريل على 10 وسوم كحد أقصى.', tooLarge: 'اختر مقطعًا لا يتجاوز 40 ميغابايت.', tooLong: 'يجب ألا يتجاوز الفيديو ٦٠ ثانية.', retry: 'إعادة المحاولة', format: 'اختر مقطع MP4 أو WebM.', failed: 'تعذر نشر المقطع. حاول مرة أخرى.' },
 } satisfies Record<Locale, Record<string, string>>
 
-export function ReelsSection({ locale, viewer, initialReels, inviteUrl, onSignIn, onReelPublished }: {
+export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateContent, onMembershipRequired, onReelPublished }: {
   locale: Locale
   viewer: CurrentUser | null
   initialReels: CommunityReel[]
-  inviteUrl: string | null
   onSignIn: () => void
+  onCreateContent: () => Promise<boolean>
+  onMembershipRequired: () => void
   onReelPublished: (reel: CommunityReel, xp: number | null) => void
 }) {
   const labels = reelCopy[locale]
@@ -479,6 +480,11 @@ export function ReelsSection({ locale, viewer, initialReels, inviteUrl, onSignIn
   const [publishing, setPublishing] = useState(false)
   const [error, setError] = useState('')
   const [composerOpen, setComposerOpen] = useState(false)
+
+  async function openComposer() {
+    if (!viewer) return onSignIn()
+    if (await onCreateContent()) setComposerOpen(true)
+  }
 
   async function publishReel(event?: React.FormEvent<HTMLFormElement>) {
     event?.preventDefault()
@@ -517,6 +523,11 @@ export function ReelsSection({ locale, viewer, initialReels, inviteUrl, onSignIn
     } catch (caught) {
       const code = caught instanceof Error ? caught.message : ''
       console.error('[reels] publish flow failed', { message: code })
+      if (code === 'DISCORD_MEMBERSHIP_REQUIRED') {
+        onMembershipRequired()
+        setError('')
+        return
+      }
       setError(code === 'invalid_reel' ? labels.invalid
         : code === 'too_many_tags' ? labels.tooManyTags
         : localizedUploadError(code, locale, stage === 'upload' ? labels.uploadFailed : labels.failed))
@@ -528,9 +539,9 @@ export function ReelsSection({ locale, viewer, initialReels, inviteUrl, onSignIn
   return (
     <section className="section-view" aria-labelledby="reels-title">
       <div className="section-heading"><span className="section-kicker"><Video aria-hidden="true" />{labels.title}</span><h1 id="reels-title">{labels.title}</h1><p>{labels.description}</p></div>
-      {viewer ? viewer.isMember ? (
-        <button className="section-primary-button reel-compose-trigger" type="button" onClick={() => setComposerOpen(true)}>{labels.publish}<Plus aria-hidden="true" /></button>
-      ) : <div className="reel-sign-in"><p>{labels.join}</p>{inviteUrl && <a href={inviteUrl} target="_blank" rel="noreferrer">{labels.join}<ArrowUpRight aria-hidden="true" /></a>}</div> : <button className="reel-sign-in" type="button" onClick={onSignIn}>{labels.signIn}<ArrowUpRight aria-hidden="true" /></button>}
+      {viewer
+        ? <button className="section-primary-button reel-compose-trigger" type="button" onClick={() => void openComposer()}>{labels.publish}<Plus aria-hidden="true" /></button>
+        : <button className="reel-sign-in" type="button" onClick={onSignIn}>{labels.signIn}<ArrowUpRight aria-hidden="true" /></button>}
       {composerOpen && <ModalPortal backdropClassName="social-composer-modal-backdrop" dialogClassName="social-composer-modal reel-composer-modal" labelId="reel-composer-title" onClose={() => { if (!publishing) setComposerOpen(false) }}>
         <div className="social-composer-modal-heading"><h2 id="reel-composer-title">{labels.publish}</h2><button className="icon-button" type="button" disabled={publishing} onClick={() => setComposerOpen(false)} aria-label={locale === 'ar' ? 'إغلاق' : 'Close'}><X aria-hidden="true" /></button></div>
         <form className="reel-composer" onSubmit={publishReel}>

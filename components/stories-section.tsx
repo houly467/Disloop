@@ -31,7 +31,13 @@ async function fetchFeed(url: string): Promise<FeedData> {
   return response.json()
 }
 
-export function StoriesSection({ viewer, locale, onSignIn }: { viewer: CurrentUser | null; locale: Locale; onSignIn: () => void }) {
+export function StoriesSection({ viewer, locale, onSignIn, onCreateContent, onMembershipRequired }: {
+  viewer: CurrentUser | null
+  locale: Locale
+  onSignIn: () => void
+  onCreateContent: () => Promise<boolean>
+  onMembershipRequired: () => void
+}) {
   const copy = labels[locale]
   const [storyBody, setStoryBody] = useState('')
   const [storyFile, setStoryFile] = useState<File | null>(null)
@@ -49,6 +55,11 @@ export function StoriesSection({ viewer, locale, onSignIn }: { viewer: CurrentUs
   const { data, mutate } = useSWR('/api/daily', fetchFeed, { refreshInterval: 30000 })
   const stories = data?.stories ?? []
   const posts = data?.posts ?? []
+
+  async function openComposer(kind: 'story' | 'daily') {
+    if (!viewer) return onSignIn()
+    if (await onCreateContent()) setComposerOpen(kind)
+  }
 
   function validateFile(file: File | null) {
     if (!file) return true
@@ -115,6 +126,12 @@ export function StoriesSection({ viewer, locale, onSignIn }: { viewer: CurrentUs
     } catch (caught) {
       const code = caught instanceof Error ? caught.message : ''
       console.error('[stories] publish flow failed', { message: code })
+      if (code === 'DISCORD_MEMBERSHIP_REQUIRED') {
+        onMembershipRequired()
+        setRetryTarget(null)
+        setError('')
+        return
+      }
       setRetryTarget('story')
       setError(code === 'invalid_story' ? copy.invalid
         : stage === 'upload' ? localizedUploadError(code, locale, copy.uploadError) : copy.error)
@@ -153,6 +170,12 @@ export function StoriesSection({ viewer, locale, onSignIn }: { viewer: CurrentUs
     } catch (caught) {
       const code = caught instanceof Error ? caught.message : ''
       console.error('[daily] publish flow failed', { message: code })
+      if (code === 'DISCORD_MEMBERSHIP_REQUIRED') {
+        onMembershipRequired()
+        setRetryTarget(null)
+        setError('')
+        return
+      }
       setRetryTarget('daily')
       setError(code === 'invalid_daily_post' || code === 'too_many_tags' ? copy.invalid
         : stage === 'upload' ? localizedUploadError(code, locale, copy.uploadError) : copy.error)
@@ -162,16 +185,14 @@ export function StoriesSection({ viewer, locale, onSignIn }: { viewer: CurrentUs
     }
   }
 
-  if (viewer && !viewer.isMember) return <section className="section-view stories-view" aria-labelledby="stories-title" dir={locale === 'ar' ? 'rtl' : 'ltr'} lang={locale}><div className="section-heading"><span className="section-kicker"><Images aria-hidden="true" />{copy.title}</span><h1 id="stories-title">{copy.title}</h1><p>{copy.description}</p></div><p className="stories-access-note">{copy.member}</p></section>
-
   return (
     <section className="section-view stories-view" aria-labelledby="stories-title" dir={locale === 'ar' ? 'rtl' : 'ltr'} lang={locale}>
       <div className="section-heading"><span className="section-kicker"><Images aria-hidden="true" />{copy.title}</span><h1 id="stories-title">{copy.title}</h1><p>{copy.description}</p></div>
       {!viewer && <button className="stories-access-note" type="button" onClick={onSignIn}>{copy.login}<ArrowUpRight aria-hidden="true" /></button>}
       {error && <div className="stories-error" role="alert"><p>{error}</p>{retryTarget && <Button type="button" size="sm" variant="outline" onClick={() => void (retryTarget === 'story' ? publishStory() : publishDaily())}>{locale === 'ar' ? 'إعادة المحاولة' : 'Retry'}</Button>}</div>}
       {viewer && <div className="stories-composer-grid">
-        <button type="button" className="story-compose-trigger" onClick={() => setComposerOpen('story')}><Camera aria-hidden="true" /><strong>{copy.shareStory}</strong><Plus aria-hidden="true" /></button>
-        <button type="button" className="story-compose-trigger" onClick={() => setComposerOpen('daily')}><Images aria-hidden="true" /><strong>{copy.shareDaily}</strong><Plus aria-hidden="true" /></button>
+        <button type="button" className="story-compose-trigger" onClick={() => void openComposer('story')}><Camera aria-hidden="true" /><strong>{copy.shareStory}</strong><Plus aria-hidden="true" /></button>
+        <button type="button" className="story-compose-trigger" onClick={() => void openComposer('daily')}><Images aria-hidden="true" /><strong>{copy.shareDaily}</strong><Plus aria-hidden="true" /></button>
       </div>}
       {composerOpen && <ModalPortal backdropClassName="social-composer-modal-backdrop" dialogClassName="social-composer-modal story-composer-modal" labelId="story-composer-title" onClose={() => {
         if (!storyBusy && !dailyBusy) {

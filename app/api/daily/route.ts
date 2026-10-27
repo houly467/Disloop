@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const access = await requireLoggedInServerMember(request)
+  const access = await requireLoggedInServerMember(request, { requireDiscordMembership: true })
   if (!access.ok) return access.response
   const user = access.user
   const rateLimit = await rateLimitResponse(`daily:${user.id}`, 5, 3600)

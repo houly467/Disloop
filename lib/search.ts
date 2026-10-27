@@ -13,7 +13,7 @@ export async function searchCommunity(rawQuery: string) {
   const pattern = `%${term.replace(/[\\%_]/g, '\\$&')}%`
   const [members, posts, dailyPosts, reels, hashtags] = await Promise.all([
     db.select({ id: disloopUsers.id, username: disloopUsers.usernameDisplay, displayName: disloopUsers.displayName, avatarUrl: disloopUsers.avatarUrl, nameStyle: disloopUserFlair.nameStyle, customTitle: disloopUserFlair.customTitle })
-      .from(disloopUsers).leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id)).where(and(eq(disloopUsers.isMember, true), eq(disloopUsers.isSeed, false), or(ilike(disloopUsers.usernameDisplay, pattern), ilike(disloopUsers.displayName, pattern), ilike(disloopUsers.discordUsername, pattern))))
+      .from(disloopUsers).leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id)).where(and(eq(disloopUsers.isSeed, false), or(ilike(disloopUsers.usernameDisplay, pattern), ilike(disloopUsers.displayName, pattern), ilike(disloopUsers.discordUsername, pattern))))
       .orderBy(desc(disloopUsers.xp)).limit(12),
     db.select({ id: disloopNewsPosts.id, title: disloopNewsPosts.title, body: disloopNewsPosts.body, tags: disloopNewsPosts.tags, createdAt: disloopNewsPosts.createdAt })
       .from(disloopNewsPosts).where(and(eq(disloopNewsPosts.isHidden, false), or(ilike(disloopNewsPosts.title, pattern), ilike(disloopNewsPosts.body, pattern), arrayContains(disloopNewsPosts.tags, [term.toLowerCase()]))))

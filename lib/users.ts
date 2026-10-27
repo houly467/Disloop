@@ -67,7 +67,7 @@ export async function getMemberDirectory(): Promise<CommunityMember[]> {
     })
     .from(disloopUsers)
     .leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id))
-    .where(and(eq(disloopUsers.isMember, true), eq(disloopUsers.isSeed, false)))
+    .where(eq(disloopUsers.isSeed, false))
     .orderBy(asc(disloopUsers.displayName))
     .limit(50)
 }

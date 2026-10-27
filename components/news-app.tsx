@@ -57,6 +57,7 @@ import { BRAND_LOGO_URL } from '@/lib/brand-assets'
 import { ProfileOnboarding } from '@/components/profile-onboarding'
 import { BackButton } from '@/components/back-button'
 import { UserName } from '@/components/user-name'
+import { DiscordJoinModal } from '@/components/discord-join-modal'
 
 type Locale = 'en' | 'ar'
 type MainSection = 'news' | 'reels' | 'stories' | 'search' | 'profile' | 'messages' | 'groups' | 'notifications'
@@ -75,7 +76,6 @@ type NewsAppProps = {
   initialComposerOpen: boolean
   inviteUrl: string | null
   authNotice: string | null
-  membershipReturnTo: string | null
 }
 
 const copy = {
@@ -168,11 +168,6 @@ function relativeTime(value: string, locale: Locale) {
   return formatter.format(-Math.floor(minutes / 1_440), 'day')
 }
 
-function sanitizeReturnTo(value: string | null) {
-  if (!value || !value.startsWith('/') || value.startsWith('//')) return null
-  return value
-}
-
 export function NewsApp({
   initialPosts,
   initialSession,
@@ -184,7 +179,6 @@ export function NewsApp({
   initialComposerOpen,
   inviteUrl,
   authNotice,
-  membershipReturnTo,
 }: NewsAppProps) {
   const [locale, setLocale] = useState<Locale>('en')
   const [theme, setTheme] = useState<Theme>('dark')
@@ -218,8 +212,8 @@ export function NewsApp({
     authNotice === 'failed' ? 'loginError' : authNotice === 'state-error' ? 'stateError' : authNotice === 'configuration-error' ? 'authConfigError' : null,
   )
   const [userIsMember, setUserIsMember] = useState(initialSession?.isMember ?? false)
-  const [checkingMembership, setCheckingMembership] = useState(false)
-  const [composerOpen, setComposerOpen] = useState(initialComposerOpen && Boolean(initialSession?.isMember && initialSession.dateOfBirth))
+  const [composerOpen, setComposerOpen] = useState(false)
+  const [joinModalOpen, setJoinModalOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('community')
@@ -240,7 +234,6 @@ export function NewsApp({
   const t = copy[locale] as Record<string, string>
   const isArabic = locale === 'ar'
   const loginHref = '/auth/login?returnTo=%2F%3Fcompose%3Dnews'
-  const pendingReturn = sanitizeReturnTo(membershipReturnTo)
   const { data: notificationSummary } = useSWR<{ unreadCount: number }>(currentUser ? '/api/notifications?summary=1' : null, async (url: string) => {
     const response = await fetch(url, { cache: 'no-store' })
     if (!response.ok) throw new Error('notifications_failed')
@@ -248,6 +241,13 @@ export function NewsApp({
   }, { refreshInterval: 15000 })
 
   useEffect(() => setComposerPortalReady(true), [])
+
+  const initialComposerHandled = useRef(false)
+  useEffect(() => {
+    if (!initialComposerOpen || initialComposerHandled.current || !currentUser?.dateOfBirth) return
+    initialComposerHandled.current = true
+    void openComposer()
+  }, [initialComposerOpen, currentUser?.dateOfBirth])
 
   useEffect(() => {
     if (!composerOpen) return
@@ -368,17 +368,32 @@ export function NewsApp({
     showMessage(isSaved ? 'unsavedPost' : 'savedPost')
   }
 
-  function openComposer() {
+  async function checkContentMembership() {
+    if (!currentUser) return false
+    try {
+      const response = await fetch('/api/membership', { method: 'POST', credentials: 'include' })
+      const result = await response.json() as { isMember?: boolean }
+      if (!response.ok || typeof result.isMember !== 'boolean') {
+        showMessage('verifyFailed')
+        return false
+      }
+      setUserIsMember(result.isMember)
+      setCurrentUser((user) => user ? { ...user, isMember: result.isMember! } : user)
+      if (!result.isMember) setJoinModalOpen(true)
+      return result.isMember
+    } catch {
+      showMessage('verifyFailed')
+      return false
+    }
+  }
+
+  async function openComposer() {
     if (!currentUser) {
       window.location.assign(loginHref)
       return
     }
-    if (!userIsMember) {
-      showMessage('membershipRequired')
-      return
-    }
     setFormError(null)
-    setComposerOpen(true)
+    if (await checkContentMembership()) setComposerOpen(true)
   }
 
   function closeComposer() {
@@ -389,26 +404,6 @@ export function NewsApp({
       return
     }
     setComposerOpen(false)
-  }
-
-  async function verifyMembership() {
-    setCheckingMembership(true)
-    try {
-      const response = await fetch('/api/membership', { method: 'POST' })
-      const result = (await response.json()) as { isMember?: boolean }
-      if (!response.ok || !result.isMember) {
-        showMessage('verifyFailed')
-        return
-      }
-      setUserIsMember(true)
-      setCurrentUser((user) => user ? { ...user, isMember: true } : user)
-      showMessage('verified')
-      if (pendingReturn?.includes('compose=news')) setComposerOpen(true)
-    } catch {
-      showMessage('verifyFailed')
-    } finally {
-      setCheckingMembership(false)
-    }
   }
 
   function selectCover(file: File | null) {
@@ -452,6 +447,10 @@ export function NewsApp({
       const result = (await response.json()) as { post?: NewsPost; xp?: number | null; error?: string; reason?: string }
       if (!response.ok || !result.post) {
         console.error('[news] publish request failed', { status: response.status, message: result.reason ?? result.error ?? 'publishFailed' })
+        if (result.error === 'DISCORD_MEMBERSHIP_REQUIRED' || result.reason === 'DISCORD_MEMBERSHIP_REQUIRED') {
+          setJoinModalOpen(true)
+          throw new Error('DISCORD_MEMBERSHIP_REQUIRED')
+        }
         if (result.error === 'too_many_tags') throw new Error('tooManyTags')
         if (result.error === 'invalid_post') throw new Error('tooManyMentions')
         throw new Error(result.reason ?? result.error ?? 'publishFailed')
@@ -472,7 +471,7 @@ export function NewsApp({
     } catch (error) {
       const message = error instanceof Error ? error.message : 'publishFailed'
       console.error('[news] publishing flow failed', { message })
-      setFormError(message)
+      if (message !== 'DISCORD_MEMBERSHIP_REQUIRED') setFormError(message)
     } finally {
       setPublishing(false)
       setUploadProgress(0)
@@ -624,22 +623,6 @@ export function NewsApp({
                 <p>{t.subhead}</p>
               </div>
 
-              {currentUser && !userIsMember && (
-                <section className="membership-card" aria-labelledby="membership-title">
-                  <div className="membership-icon"><ShieldCheck aria-hidden="true" /></div>
-                  <div className="membership-copy">
-                    <h2 id="membership-title">{t.membersOnly}</h2>
-                    <p>{t.membersOnlyBody}</p>
-                  </div>
-                  <div className="membership-actions">
-                    {inviteUrl && <a className="invite-button" href={inviteUrl} target="_blank" rel="noreferrer">{t.openDiscord}<ArrowUpRight aria-hidden="true" /></a>}
-                    <Button type="button" variant="outline" onClick={verifyMembership} disabled={checkingMembership}>
-                      {checkingMembership ? <><Clock3 data-icon="inline-start" />{t.checking}</> : <><Check data-icon="inline-start" />{t.verify}</>}
-                    </Button>
-                  </div>
-                </section>
-              )}
-
               <div className="feed-toolbar">
                 <div className="category-tabs" role="group" aria-label={isArabic ? 'تصفية الأخبار' : 'Filter news'}>
                   {categoryKeys.map((key) => (
@@ -706,12 +689,12 @@ export function NewsApp({
             </section>
             ) : (
               <div className="feed-column">
-                {activeSection === 'reels' && <ReelsSection locale={locale} viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} initialReels={reels} inviteUrl={inviteUrl} onSignIn={() => window.location.assign(loginHref)} onReelPublished={(reel, xp) => { setReels((current) => [reel, ...current]); setProfileReels((current) => [reel, ...current]); if (xp !== null) setCurrentUser((user) => user ? { ...user, xp } : user) }}
+                {activeSection === 'reels' && <ReelsSection locale={locale} viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} initialReels={reels} onSignIn={() => window.location.assign(loginHref)} onCreateContent={checkContentMembership} onMembershipRequired={() => setJoinModalOpen(true)} onReelPublished={(reel, xp) => { setReels((current) => [reel, ...current]); setProfileReels((current) => [reel, ...current]); if (xp !== null) setCurrentUser((user) => user ? { ...user, xp } : user) }}
  />}
-                {activeSection === 'stories' && <StoriesSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} />}
+                {activeSection === 'stories' && <StoriesSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} onCreateContent={checkContentMembership} onMembershipRequired={() => setJoinModalOpen(true)} />}
                 {activeSection === 'search' && <DatabaseSearchSection query={query} onQueryChange={setQuery} locale={locale} />}
                 {activeSection === 'messages' && <DirectMessagesSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} />}
-                {activeSection === 'groups' && <GroupsSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} onMembershipVerified={() => { setUserIsMember(true); setCurrentUser((user) => user ? { ...user, isMember: true } : user) }} />}
+                {activeSection === 'groups' && <GroupsSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} />}
                 {activeSection === 'notifications' && <NotificationsSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} />}
                 {activeSection === 'profile' && currentUser && <ProfileSection profile={{ ...currentUser, ...initialProfileFlair, isMember: userIsMember }} posts={profilePosts} reels={profileReels} locale={locale} editable viewer={{ ...currentUser, isMember: userIsMember }} onSignIn={() => window.location.assign(loginHref)} onProfileSaved={(updated) => setCurrentUser((user) => user ? { ...user, ...updated } : user)} />}
                 {activeSection === 'profile' && !currentUser && <section className="section-view"><div className="section-heading"><span className="section-kicker"><UserRound aria-hidden="true" />{t.profile}</span><h1>{isArabic ? 'ابدأ ملفك بتسجيل الدخول عبر Discord' : 'Your profile starts with Discord'}</h1><p>{isArabic ? 'سجّل الدخول لعرض هويتك ومنشوراتك في المجتمع.' : 'Sign in to see your community identity and posts.'}</p></div><button className="section-primary-button" type="button" onClick={() => window.location.assign(loginHref)}>{t.signIn}<ArrowUpRight aria-hidden="true" /></button></section>}
@@ -752,7 +735,9 @@ export function NewsApp({
         <Plus data-icon="inline-start" /><span>{t.create}</span>
       </Button>}
 
-      {currentUser && !currentUser.dateOfBirth && <ProfileOnboarding profile={currentUser} locale={locale} onToggleLocale={() => setLocale((value) => value === 'en' ? 'ar' : 'en')} onComplete={(updated) => { setCurrentUser((user) => user ? { ...user, ...updated } : user); if (initialComposerOpen && currentUser.isMember) setComposerOpen(true) }} />}
+      {currentUser && !currentUser.dateOfBirth && <ProfileOnboarding profile={currentUser} locale={locale} onToggleLocale={() => setLocale((value) => value === 'en' ? 'ar' : 'en')} onComplete={(updated) => setCurrentUser((user) => user ? { ...user, ...updated } : user)} />}
+
+      <DiscordJoinModal open={joinModalOpen} inviteUrl={inviteUrl} locale={locale} onClose={() => setJoinModalOpen(false)} />
 
       {showToast && <div className="toast-message" role="status"><Check aria-hidden="true" />{t.toast}</div>}
 

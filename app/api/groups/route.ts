@@ -103,7 +103,6 @@ export async function POST(request: NextRequest) {
   const access = await requireLoggedInServerMember(request)
   if (!access.ok) return access.response
   const user = access.user
-  await db.update(disloopUsers).set({ isMember: true, updatedAt: new Date() }).where(eq(disloopUsers.id, user.id))
   const rateLimit = await rateLimitResponse(`groups:${user.id}`, 3, 3600)
   if (rateLimit) return rateLimit
 

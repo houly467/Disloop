@@ -32,7 +32,6 @@ async function getAccessibleConversation(id: string, userId: string) {
 export async function GET(_request: NextRequest, { params }: RouteProps) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  if (!user.isMember) return NextResponse.json({ error: 'membership_required' }, { status: 403 })
   const { id } = await params
 
   try {

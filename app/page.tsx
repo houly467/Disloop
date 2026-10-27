@@ -35,7 +35,6 @@ export default async function HomePage({ searchParams }: PageProps) {
       initialComposerOpen={params.compose === 'news'}
       inviteUrl={process.env.DISCORD_INVITE_URL ?? null}
       authNotice={typeof params.auth === 'string' ? params.auth : null}
-      membershipReturnTo={typeof params.next === 'string' ? params.next : null}
     />
   )
 }

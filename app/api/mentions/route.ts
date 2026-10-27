@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
       customTitle: disloopUserFlair.customTitle,
     }).from(disloopUsers)
       .leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id))
-      .where(and(eq(disloopUsers.isMember, true), eq(disloopUsers.isSeed, false), ne(disloopUsers.id, user.id), or(ilike(disloopUsers.usernameDisplay, pattern), ilike(disloopUsers.displayName, pattern))))
+      .where(and(eq(disloopUsers.isSeed, false), ne(disloopUsers.id, user.id), or(ilike(disloopUsers.usernameDisplay, pattern), ilike(disloopUsers.displayName, pattern))))
       .orderBy(asc(disloopUsers.displayName)).limit(8)
     return NextResponse.json({ people }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {

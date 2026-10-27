@@ -65,7 +65,7 @@ export function DirectMessagesSection({ viewer, locale, onSignIn }: { viewer: Cu
   const [uploadProgress, setUploadProgress] = useState(0)
   const [busyPersonId, setBusyPersonId] = useState<string | null>(null)
   const [error, setError] = useState('')
-  const eligible = Boolean(viewer?.isMember)
+  const eligible = Boolean(viewer)
 
   const { data: peopleData, isLoading: peopleLoading, mutate: refreshPeople } = useSWR<{ people: Person[] }>(
     eligible && deferredSearch.length >= 2 ? `/api/dm/people?q=${encodeURIComponent(deferredSearch)}` : null,

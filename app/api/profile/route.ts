@@ -55,7 +55,7 @@ function isValidDateOfBirth(value: string) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const access = await requireLoggedInServerMember(request, { allowPendingOnboarding: true })
+  const access = await requireLoggedInServerMember(request)
   if (!access.ok) return access.response
   const user = access.user
   const rateLimit = await rateLimitResponse(`profile:${user.id}`, 10, 3600)

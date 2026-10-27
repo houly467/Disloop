@@ -203,22 +203,39 @@ describe('security regression checks', () => {
     mocks.validateUploadedMedia.mockResolvedValue(undefined)
   })
 
-  it('distinguishes a confirmed nonmember from Discord outages', async () => {
+  it('allows authenticated access by default without checking Discord membership', async () => {
     mocks.checkDiscordMembership.mockResolvedValue(false)
     const notMember = await requireLoggedInServerMember(request('http://localhost:3000/api/protected', 'POST'))
+    expect(notMember.ok).toBe(true)
+    expect(mocks.checkDiscordMembership).not.toHaveBeenCalled()
+  })
+
+  it('rejects nonmembers only when Discord membership is explicitly required', async () => {
+    mocks.checkDiscordMembership.mockResolvedValue(false)
+    const notMember = await requireLoggedInServerMember(request('http://localhost:3000/api/protected', 'POST'), { requireDiscordMembership: true })
     expect(notMember.ok).toBe(false)
     if (!notMember.ok) {
       expect(notMember.response.status).toBe(403)
-      expect(await notMember.response.json()).toMatchObject({ error: 'not_a_member', reason: 'not_a_member' })
+      expect(await notMember.response.json()).toMatchObject({ error: 'DISCORD_MEMBERSHIP_REQUIRED', reason: 'DISCORD_MEMBERSHIP_REQUIRED' })
     }
 
     mocks.checkDiscordMembership.mockRejectedValue(new Error('Discord rate limited'))
-    const unavailable = await requireLoggedInServerMember(request('http://localhost:3000/api/protected', 'POST'))
+    const unavailable = await requireLoggedInServerMember(request('http://localhost:3000/api/protected', 'POST'), { requireDiscordMembership: true })
     expect(unavailable.ok).toBe(false)
     if (!unavailable.ok) {
       expect(unavailable.response.status).toBe(503)
       expect(await unavailable.response.json()).toMatchObject({ error: 'discord_unavailable', reason: 'discord_unavailable' })
     }
+  })
+
+  it('allows confirmed members on content-creation routes', async () => {
+    mocks.checkDiscordMembership.mockResolvedValue(true)
+    const member = await requireLoggedInServerMember(
+      request('http://localhost:3000/api/protected', 'POST'),
+      { requireDiscordMembership: true },
+    )
+    expect(member.ok).toBe(true)
+    expect(mocks.checkDiscordMembership).toHaveBeenCalledWith('discord-user')
   })
 
   it('returns 401 with a reason when no session exists', async () => {
@@ -328,10 +345,11 @@ describe('security regression checks', () => {
       displayName: 'Member One',
       dateOfBirth: '2000-01-01',
     }))
-    expect(mocks.checkDiscordMembership).toHaveBeenCalledWith('discord-user')
+    expect(mocks.checkDiscordMembership).not.toHaveBeenCalled()
   })
 
-  it('continues to block profile edits for nonmembers who already completed onboarding', async () => {
+  it('allows profile edits for authenticated nonmembers after onboarding', async () => {
+    const { set } = prepareProfileUsernameUpdate()
     mocks.getCurrentUser.mockResolvedValue({
       id: USER_ID,
       discordId: 'discord-user',
@@ -343,12 +361,12 @@ describe('security regression checks', () => {
 
     const response = await updateProfile(request('http://localhost:3000/api/profile', 'PATCH', profileUpdateBody('new.member')))
 
-    expect(response.status).toBe(403)
-    expect(await response.json()).toMatchObject({ error: 'not_a_member' })
-    expect(mocks.db.update).not.toHaveBeenCalled()
+    expect(response.status).toBe(200)
+    expect(set).toHaveBeenCalled()
+    expect(mocks.checkDiscordMembership).not.toHaveBeenCalled()
   })
 
-  it('allows group creation when Discord confirms membership despite a stale session flag', async () => {
+  it('allows group creation without requiring Discord server membership', async () => {
     mocks.getCurrentUser.mockResolvedValue({ id: USER_ID, discordId: 'discord-user', isMember: false })
     mocks.db.update.mockReturnValue({ set: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })) })
     mocks.db.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
@@ -381,7 +399,7 @@ describe('security regression checks', () => {
     }))
 
     expect(response.status).toBe(201)
-    expect(mocks.checkDiscordMembership).toHaveBeenCalledWith('discord-user')
+    expect(mocks.checkDiscordMembership).not.toHaveBeenCalled()
     expect(mocks.db.transaction).toHaveBeenCalledOnce()
   })
 

@@ -24,7 +24,7 @@ function isAllowedCoverUrl(value: string, userId: string) {
 }
 
 export async function POST(request: NextRequest) {
-  const access = await requireLoggedInServerMember(request)
+  const access = await requireLoggedInServerMember(request, { requireDiscordMembership: true })
   if (!access.ok) return access.response
   const user = access.user
   const rateLimit = await rateLimitResponse(`publish:${user.id}`, 10, 3600)

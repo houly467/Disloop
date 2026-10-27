@@ -13,7 +13,6 @@ import { rateLimitResponse } from '@/lib/rate-limit'
 export async function GET() {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  if (!user.isMember) return NextResponse.json({ error: 'membership_required' }, { status: 403 })
 
   try {
     const conversations = await db
@@ -45,7 +44,7 @@ export async function GET() {
       db.select({ id: disloopUsers.id, username: disloopUsers.usernameDisplay, displayName: disloopUsers.displayName, avatarUrl: disloopUsers.avatarUrl, accountCreatedAt: disloopUsers.createdAt, nameStyle: disloopUserFlair.nameStyle, customTitle: disloopUserFlair.customTitle })
         .from(disloopUsers)
         .leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id))
-        .where(and(inArray(disloopUsers.id, peerIds), eq(disloopUsers.isMember, true), eq(disloopUsers.isSeed, false))),
+        .where(and(inArray(disloopUsers.id, peerIds), eq(disloopUsers.isSeed, false))),
       db.select({ conversationId: disloopDmMessages.conversationId, body: disloopDmMessages.body, senderId: disloopDmMessages.senderId, createdAt: disloopDmMessages.createdAt })
         .from(disloopDmMessages)
         .where(inArray(disloopDmMessages.conversationId, conversationIds))
@@ -89,7 +88,7 @@ export async function POST(request: NextRequest) {
   try {
     const [recipient] = await db.select({ id: disloopUsers.id })
       .from(disloopUsers)
-      .where(and(eq(disloopUsers.id, recipientId), eq(disloopUsers.isMember, true), eq(disloopUsers.isSeed, false)))
+      .where(and(eq(disloopUsers.id, recipientId), eq(disloopUsers.isSeed, false)))
       .limit(1)
     if (!recipient) return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
     if (!(await isMutualFollow(user.id, recipientId))) return NextResponse.json({ error: 'mutual_follow_required' }, { status: 403 })

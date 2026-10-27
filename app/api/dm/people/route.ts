@@ -8,7 +8,6 @@ import { getCurrentUser } from '@/lib/session'
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  if (!user.isMember) return NextResponse.json({ error: 'membership_required' }, { status: 403 })
 
   const query = (request.nextUrl.searchParams.get('q') ?? '').trim().slice(0, 80)
   if (query.length < 2) return NextResponse.json({ people: [] }, { headers: { 'Cache-Control': 'private, no-store' } })
@@ -30,7 +29,6 @@ export async function GET(request: NextRequest) {
       .from(disloopUsers)
       .leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id))
       .where(and(
-        eq(disloopUsers.isMember, true),
         eq(disloopUsers.isSeed, false),
         ne(disloopUsers.id, user.id),
         or(

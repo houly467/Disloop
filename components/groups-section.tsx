@@ -40,7 +40,7 @@ async function fetcher<T>(url: string): Promise<T> {
   return data
 }
 
-export function GroupsSection({ viewer, locale, onSignIn, onMembershipVerified }: { viewer: CurrentUser | null; locale: Locale; onSignIn: () => void; onMembershipVerified?: () => void }) {
+export function GroupsSection({ viewer, locale, onSignIn }: { viewer: CurrentUser | null; locale: Locale; onSignIn: () => void }) {
   const labels = copy[locale]
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const [name, setName] = useState('')
@@ -73,7 +73,6 @@ export function GroupsSection({ viewer, locale, onSignIn, onMembershipVerified }
       setName('')
       setDescription('')
       setTag('')
-      onMembershipVerified?.()
       setSelectedGroupId(result.group.id)
       await refreshGroups()
     } catch (reason) {

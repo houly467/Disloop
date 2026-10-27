@@ -55,7 +55,12 @@ export async function GET(request: NextRequest) {
     const accessToken = await exchangeDiscordCode(code, redirectUri)
     const identity = await getDiscordIdentity(accessToken)
     const user = await upsertDiscordUser(identity)
-    const isMember = await checkDiscordMembership(identity.id)
+    let isMember = false
+    try {
+      isMember = await checkDiscordMembership(identity.id)
+    } catch {
+      console.warn('[auth] Discord membership could not be refreshed during sign-in.')
+    }
     await refreshNewsMembership(user.id, isMember)
 
     if (verifiedState.mode === 'link') {
@@ -97,10 +102,7 @@ export async function GET(request: NextRequest) {
       return response
     }
 
-    const target = isMember
-      ? verifiedState.returnTo
-      : `/?membership=required&next=${encodeURIComponent(verifiedState.returnTo)}`
-    const response = NextResponse.redirect(new URL(target, request.nextUrl.origin))
+    const response = NextResponse.redirect(new URL(verifiedState.returnTo, request.nextUrl.origin))
     const token = await createSessionToken(user.id)
     setSessionCookie(response, token, secure, request.nextUrl.hostname)
     clearStateCookie(response, secure, request.nextUrl.hostname)

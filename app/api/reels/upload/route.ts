@@ -6,7 +6,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
   if (isUploadCompletion(body)) return buildUploadToken({ request, body, userId: null, kind: 'reel' })
 
-  const access = await requireLoggedInServerMember(request)
+  const access = await requireLoggedInServerMember(request, { requireDiscordMembership: true })
   if (!access.ok) return access.response
   return buildUploadToken({ request, body, userId: access.user.id, kind: 'reel' })
 }

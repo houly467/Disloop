@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   if (!access.ok) return access.response
   const targetId = request.nextUrl.searchParams.get('userId')
   if (!targetId || !isUuid(targetId) || targetId === access.user.id) return NextResponse.json({ error: 'invalid_user' }, { status: 400 })
-  const [target] = await db.select({ id: disloopUsers.id }).from(disloopUsers).where(and(eq(disloopUsers.id, targetId), eq(disloopUsers.isMember, true))).limit(1)
+  const [target] = await db.select({ id: disloopUsers.id }).from(disloopUsers).where(eq(disloopUsers.id, targetId)).limit(1)
   if (!target) return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   await db.transaction(async (tx) => {
     await tx.insert(disloopBlocks).values({ blockerId: access.user.id, blockedId: targetId }).onConflictDoNothing()

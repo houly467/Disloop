@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     }).from(disloopFollows)
       .innerJoin(disloopUsers, eq(disloopUsers.id, direction === 'followers' ? disloopFollows.followerId : disloopFollows.followedId))
       .leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id))
-      .where(and(direction === 'followers' ? eq(disloopFollows.followedId, userId) : eq(disloopFollows.followerId, userId), eq(disloopUsers.isMember, true)))
+      .where(direction === 'followers' ? eq(disloopFollows.followedId, userId) : eq(disloopFollows.followerId, userId))
       .orderBy(asc(disloopUsers.usernameDisplay))
     const visible = []
     for (const row of rows) if (!(await areUsersBlocked(access.user.id, row.id))) visible.push(row)

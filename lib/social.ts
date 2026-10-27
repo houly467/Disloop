@@ -24,7 +24,7 @@ export async function createNotification(input: {
 export async function notifyMentions(text: string, actorId: string, targetType: SocialContentType | 'profile' | 'chat', targetId: string, allowedRecipientIds?: string[]) {
   const usernames = findMentionUsernames(text).slice(0, 5)
   if (!usernames.length) return
-  const filters = [inArray(disloopUsers.usernameLower, usernames), eq(disloopUsers.isMember, true), eq(disloopUsers.isSeed, false)]
+  const filters = [inArray(disloopUsers.usernameLower, usernames), eq(disloopUsers.isSeed, false)]
   if (allowedRecipientIds) filters.push(inArray(disloopUsers.id, allowedRecipientIds))
   const users = await db
     .select({ id: disloopUsers.id, usernameLower: disloopUsers.usernameLower })

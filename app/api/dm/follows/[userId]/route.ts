@@ -15,7 +15,7 @@ async function getTarget(userId: string) {
   const [target] = await db
     .select({ id: disloopUsers.id })
     .from(disloopUsers)
-    .where(and(eq(disloopUsers.id, userId), eq(disloopUsers.isMember, true), eq(disloopUsers.isSeed, false)))
+    .where(and(eq(disloopUsers.id, userId), eq(disloopUsers.isSeed, false)))
     .limit(1)
   return target ?? null
 }

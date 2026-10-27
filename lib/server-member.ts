@@ -3,7 +3,7 @@ import { checkDiscordMembership } from '@/lib/discord'
 import { isSameOriginRequest } from '@/lib/security'
 import { getCurrentUserResult, type CurrentUser } from '@/lib/session'
 
-type MemberFailureCode = 'invalid_origin' | 'not_logged_in' | 'not_a_member' | 'banned' | 'discord_unavailable' | 'session_unavailable' | 'invalid_input'
+type MemberFailureCode = 'invalid_origin' | 'not_logged_in' | 'DISCORD_MEMBERSHIP_REQUIRED' | 'banned' | 'discord_unavailable' | 'session_unavailable' | 'invalid_input'
 
 export type ServerMemberResult =
   | { ok: true; user: CurrentUser }
@@ -17,7 +17,7 @@ export function memberErrorResponse(code: MemberFailureCode, status: number, err
 
 export async function requireLoggedInServerMember(
   request: NextRequest,
-  options: { allowPendingOnboarding?: boolean } = {},
+  options: { requireDiscordMembership?: boolean } = {},
 ): Promise<ServerMemberResult> {
   if (!isSameOriginRequest(request)) {
     return { ok: false, response: memberErrorResponse('invalid_origin', 403) }
@@ -32,14 +32,14 @@ export async function requireLoggedInServerMember(
     return { ok: false, response: memberErrorResponse(code, code === 'banned' ? 403 : 401) }
   }
 
-  try {
-    if (!(await checkDiscordMembership(session.user.discordId))) {
-      if (!(options.allowPendingOnboarding && session.user.dateOfBirth === null)) {
-        return { ok: false, response: memberErrorResponse('not_a_member', 403) }
+  if (options.requireDiscordMembership) {
+    try {
+      if (!(await checkDiscordMembership(session.user.discordId))) {
+        return { ok: false, response: memberErrorResponse('DISCORD_MEMBERSHIP_REQUIRED', 403) }
       }
+    } catch (error) {
+      return { ok: false, response: memberErrorResponse('discord_unavailable', 503, error) }
     }
-  } catch (error) {
-    return { ok: false, response: memberErrorResponse('discord_unavailable', 503, error) }
   }
 
   return { ok: true, user: session.user }
