@@ -1,0 +1,475 @@
+import React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { NextRequest } from 'next/server'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const mocks = vi.hoisted(() => ({
+  db: {
+    select: vi.fn(),
+    update: vi.fn(),
+    transaction: vi.fn(),
+  },
+  getCurrentUser: vi.fn(),
+  getCurrentUserResult: vi.fn(),
+  rateLimitResponse: vi.fn(),
+  checkDiscordMembership: vi.fn(),
+  isDiscordModerator: vi.fn(),
+  getModerationQueue: vi.fn(),
+  syncDiscordXpRole: vi.fn(),
+  blobHead: vi.fn(),
+  blobDelete: vi.fn(),
+  blobUploadHandler: vi.fn(),
+  validateUploadedMedia: vi.fn(),
+  redis: { get: vi.fn(), set: vi.fn(), del: vi.fn() },
+}))
+
+vi.mock('@/lib/db', () => ({ db: mocks.db }))
+vi.mock('@/lib/session', () => ({ getCurrentUser: mocks.getCurrentUser, getCurrentUserResult: mocks.getCurrentUserResult }))
+vi.mock('@/lib/rate-limit', () => ({ rateLimitResponse: mocks.rateLimitResponse }))
+vi.mock('@/lib/discord', () => ({ checkDiscordMembership: mocks.checkDiscordMembership }))
+vi.mock('@/lib/discord-community', () => ({
+  isDiscordModerator: mocks.isDiscordModerator,
+  syncDiscordXpRole: mocks.syncDiscordXpRole,
+}))
+vi.mock('@/lib/moderation', () => ({ getModerationQueue: mocks.getModerationQueue }))
+vi.mock('@vercel/blob', () => ({ head: mocks.blobHead, del: mocks.blobDelete }))
+vi.mock('@vercel/blob/client', () => ({ handleUpload: mocks.blobUploadHandler }))
+vi.mock('@/lib/media-validation', () => ({ validateUploadedMedia: mocks.validateUploadedMedia }))
+vi.mock('@/lib/upstash', () => ({ redis: mocks.redis }))
+
+import { GET as getModerationQueue } from '@/app/api/moderation/route'
+import { PATCH as updateProfile } from '@/app/api/profile/route'
+import { POST as createGroup } from '@/app/api/groups/route'
+import { POST as joinGroup } from '@/app/api/groups/[id]/join/route'
+import { POST as respondToGroupInvite } from '@/app/api/groups/invites/[inviteId]/route'
+import { PATCH as pinComment } from '@/app/api/social/comments/[id]/route'
+import { awardXp } from '@/lib/gamification'
+import { buildUploadToken } from '@/lib/blob-uploads'
+import { RichText } from '@/components/mention-textarea'
+import { normalizeUsername } from '@/lib/users'
+import { requireLoggedInServerMember } from '@/lib/server-member'
+
+const USER_ID = '11111111-1111-4111-8111-111111111111'
+const OTHER_USER_ID = '22222222-2222-4222-8222-222222222222'
+const CONTENT_ID = '33333333-3333-4333-8333-333333333333'
+const COMMENT_ID = '44444444-4444-4444-8444-444444444444'
+
+function request(url: string, method: string, body?: unknown) {
+  return new NextRequest(url, {
+    method,
+    headers: {
+      origin: 'http://localhost:3000',
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  })
+}
+
+function selectResult(result: unknown[]) {
+  const query: Record<string, ReturnType<typeof vi.fn>> = {}
+  query.from = vi.fn(() => query)
+  query.where = vi.fn(() => query)
+  query.limit = vi.fn().mockResolvedValue(result)
+  return query
+}
+
+function makeXpTransaction(eventAlreadyRecorded: () => boolean, markRecorded: () => void, xpAfter = 3) {
+  let selectCount = 0
+  let insertCount = 0
+  const insertValues: unknown[] = []
+  const tx = {
+    select: vi.fn(() => {
+      const query: Record<string, ReturnType<typeof vi.fn>> = {}
+      query.from = vi.fn(() => query)
+      const currentSelect = selectCount++
+      if (currentSelect === 0) {
+        query.where = vi.fn(() => query)
+        query.for = vi.fn().mockResolvedValue([{ id: USER_ID }])
+      } else {
+        query.where = vi.fn().mockResolvedValue(currentSelect === 1 ? [{ points: 0 }] : [])
+      }
+      return query
+    }),
+    insert: vi.fn(() => {
+      const currentInsert = insertCount++
+      return {
+        values: vi.fn((values: unknown) => {
+          insertValues.push(values)
+          return {
+            onConflictDoNothing: vi.fn(() => currentInsert === 0 ? {
+              returning: vi.fn().mockImplementation(async () => {
+                if (eventAlreadyRecorded()) return []
+                markRecorded()
+                return [{ id: 'xp-event-id' }]
+              }),
+            } : Promise.resolve(undefined)),
+          }
+        }),
+      }
+    }),
+    update: vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn().mockResolvedValue([{ discordId: 'discord-user', xp: xpAfter }]),
+        })),
+      })),
+    })),
+    insertValues,
+  }
+  return tx
+}
+
+describe('security regression checks', () => {
+  it('allows 3+ character usernames for everyone and reserves 1–2 characters for verified users', () => {
+    expect(normalizeUsername('abc')).toBe('abc')
+    expect(normalizeUsername('ab')).toBeNull()
+    expect(normalizeUsername('abc', true)).toBe('abc')
+    expect(normalizeUsername('ab', true)).toBe('ab')
+    expect(normalizeUsername('a', true)).toBe('a')
+    expect(normalizeUsername('a..b', true)).toBeNull()
+    expect(normalizeUsername('admin', true)).toBeNull()
+  })
+
+  beforeEach(() => {
+    vi.resetAllMocks()
+    mocks.getCurrentUser.mockResolvedValue({ id: USER_ID, discordId: 'discord-user', isMember: true })
+    mocks.getCurrentUserResult.mockImplementation(async () => ({ status: 'ok', user: await mocks.getCurrentUser() }))
+    process.env.BLOB_READ_WRITE_TOKEN = 'test-blob-token'
+    mocks.rateLimitResponse.mockResolvedValue(null)
+    mocks.checkDiscordMembership.mockResolvedValue(true)
+    mocks.isDiscordModerator.mockResolvedValue(false)
+    mocks.syncDiscordXpRole.mockResolvedValue(undefined)
+    mocks.redis.get.mockResolvedValue(null)
+    mocks.redis.set.mockResolvedValue('OK')
+    mocks.redis.del.mockResolvedValue(1)
+    mocks.blobDelete.mockResolvedValue(undefined)
+    mocks.validateUploadedMedia.mockResolvedValue(undefined)
+  })
+
+  it('distinguishes a confirmed nonmember from Discord outages', async () => {
+    mocks.checkDiscordMembership.mockResolvedValue(false)
+    const notMember = await requireLoggedInServerMember(request('http://localhost:3000/api/protected', 'POST'))
+    expect(notMember.ok).toBe(false)
+    if (!notMember.ok) {
+      expect(notMember.response.status).toBe(403)
+      expect(await notMember.response.json()).toMatchObject({ error: 'not_a_member', reason: 'not_a_member' })
+    }
+
+    mocks.checkDiscordMembership.mockRejectedValue(new Error('Discord rate limited'))
+    const unavailable = await requireLoggedInServerMember(request('http://localhost:3000/api/protected', 'POST'))
+    expect(unavailable.ok).toBe(false)
+    if (!unavailable.ok) {
+      expect(unavailable.response.status).toBe(503)
+      expect(await unavailable.response.json()).toMatchObject({ error: 'discord_unavailable', reason: 'discord_unavailable' })
+    }
+  })
+
+  it('returns 401 with a reason when no session exists', async () => {
+    mocks.getCurrentUserResult.mockResolvedValue({ status: 'not_logged_in' })
+    const result = await requireLoggedInServerMember(request('http://localhost:3000/api/protected', 'POST'))
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.response.status).toBe(401)
+      expect(await result.response.json()).toMatchObject({ error: 'not_logged_in', reason: 'not_logged_in' })
+    }
+  })
+
+  it('rejects profile mass assignment instead of accepting role or XP fields', async () => {
+    const response = await updateProfile(request('http://localhost:3000/api/profile', 'PATCH', {
+      username: 'member.one',
+      displayName: 'Member One',
+      bio: '',
+      location: '',
+      socialLinks: {},
+      publicVisitCount: false,
+      hideLikes: false,
+      isStaffRole: 'admin',
+      xp: 999999,
+    }))
+
+    expect(response.status).toBe(400)
+    expect(mocks.db.update).not.toHaveBeenCalled()
+  })
+
+  it('allows group creation when Discord confirms membership despite a stale session flag', async () => {
+    mocks.getCurrentUser.mockResolvedValue({ id: USER_ID, discordId: 'discord-user', isMember: false })
+    mocks.db.update.mockReturnValue({ set: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })) })
+    mocks.db.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
+      let insertCount = 0
+      const transaction = {
+        execute: vi.fn().mockResolvedValue(undefined),
+        select: vi.fn(() => {
+          const query: Record<string, ReturnType<typeof vi.fn>> = {}
+          query.from = vi.fn(() => query)
+          query.where = vi.fn(() => query)
+          query.for = vi.fn().mockResolvedValue([{ hasCreatedGroup: false }])
+          query.limit = vi.fn().mockResolvedValue([])
+          return query
+        }),
+        update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })) })),
+        insert: vi.fn(() => {
+          const current = insertCount++
+          return current === 0
+            ? { values: vi.fn(() => ({ returning: vi.fn().mockResolvedValue([{ id: CONTENT_ID, name: 'A circle', tag: 'circle' }]) })) }
+            : { values: vi.fn().mockResolvedValue(undefined) }
+        }),
+      }
+      return callback(transaction)
+    })
+
+    const response = await createGroup(request('http://localhost:3000/api/groups', 'POST', {
+      name: 'A circle',
+      description: '',
+      tag: 'circle',
+    }))
+
+    expect(response.status).toBe(201)
+    expect(mocks.checkDiscordMembership).toHaveBeenCalledWith('discord-user')
+    expect(mocks.db.transaction).toHaveBeenCalledOnce()
+  })
+
+  it('blocks a second group creation after the account creation flag is set', async () => {
+    mocks.db.update.mockReturnValue({ set: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })) })
+    mocks.db.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(() => {
+        const query: Record<string, ReturnType<typeof vi.fn>> = {}
+        query.from = vi.fn(() => query)
+        query.where = vi.fn(() => query)
+        query.for = vi.fn().mockResolvedValue([{ hasCreatedGroup: true }])
+        return query
+      }),
+      insert: vi.fn(),
+    }))
+
+    const response = await createGroup(request('http://localhost:3000/api/groups', 'POST', {
+      name: 'Another circle',
+      description: '',
+      tag: 'another',
+    }))
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'group_limit_reached' })
+  })
+
+  it('blocks joining a second group when the user already belongs to another', async () => {
+    const queryResults = [
+      [{ id: CONTENT_ID, isPrivate: false }],
+      [{ groupId: OTHER_USER_ID }],
+    ]
+    const transaction = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(() => {
+        const query: Record<string, ReturnType<typeof vi.fn>> = {}
+        query.from = vi.fn(() => query)
+        query.where = vi.fn(() => query)
+        query.limit = vi.fn().mockImplementation(async () => queryResults.shift() ?? [])
+        return query
+      }),
+      insert: vi.fn(),
+    }
+    mocks.db.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback(transaction))
+
+    const response = await joinGroup(request(`http://localhost:3000/api/groups/${CONTENT_ID}/join`, 'POST'), {
+      params: Promise.resolve({ id: CONTENT_ID }),
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'group_membership_exists' })
+    expect(transaction.insert).not.toHaveBeenCalled()
+  })
+
+  it('invalidates every existing group invite acceptance link', async () => {
+    const response = await respondToGroupInvite()
+
+    expect(response.status).toBe(410)
+    expect(await response.json()).toEqual({ error: 'group_invites_disabled' })
+  })
+
+  it('blocks a member from pinning a comment on another author’s post', async () => {
+    const results = [
+      [{ id: COMMENT_ID, contentType: 'news', contentId: CONTENT_ID, threadRootId: null }],
+      [{ authorId: OTHER_USER_ID }],
+    ]
+    mocks.db.select.mockImplementation(() => selectResult(results.shift() ?? []))
+
+    const response = await pinComment(request(`http://localhost:3000/api/social/comments/${COMMENT_ID}`, 'PATCH', { pinned: true }), {
+      params: Promise.resolve({ id: COMMENT_ID }),
+    })
+
+    expect(response.status).toBe(403)
+    expect(mocks.db.transaction).not.toHaveBeenCalled()
+  })
+
+  it('rejects unauthenticated moderation requests before reading the queue', async () => {
+    mocks.getCurrentUser.mockResolvedValue(null)
+
+    const response = await getModerationQueue()
+
+    expect(response.status).toBe(403)
+    expect(mocks.isDiscordModerator).not.toHaveBeenCalled()
+    expect(mocks.getModerationQueue).not.toHaveBeenCalled()
+  })
+
+  it('renders hostile rich-text input as text rather than executable markup', () => {
+    const payload = '<script>alert(1)</script><img src=x onerror=alert(2)>'
+    const html = renderToStaticMarkup(React.createElement(RichText, { text: payload }))
+
+    expect(html).not.toContain('<script')
+    expect(html).not.toContain('<img')
+    expect(html).toContain('&lt;script&gt;')
+    expect(html).toContain('&lt;img')
+  })
+
+  it('does not consume daily upload quota for a completed blob that fails validation', async () => {
+    const uploadId = '22222222-2222-4222-8222-222222222222'
+    const pathname = `reels/${USER_ID}/${uploadId}.mp4`
+    const reservationKey = `disloop:upload:${pathname}`
+    const blob = { pathname, url: 'https://blob.example/upload.mp4' }
+    const uploadBody = { type: 'blob.upload-completed', payload: {} }
+    mocks.redis.get.mockImplementation(async (key: string) => key === reservationKey
+      ? JSON.stringify({ userId: USER_ID, kind: 'reel', contentType: 'video/mp4' })
+      : null)
+    mocks.blobHead.mockResolvedValue({ pathname, contentType: 'video/mp4', size: 40 * 1024 * 1024 + 1 })
+    mocks.blobUploadHandler.mockImplementation(async (value) => {
+      const options = value as {
+        onUploadCompleted: (event: { blob: typeof blob; tokenPayload: string }) => Promise<void>
+      }
+      await options.onUploadCompleted({ blob, tokenPayload: JSON.stringify({ userId: USER_ID, pathname, kind: 'reel' }) })
+      return { url: blob.url }
+    })
+
+    const response = await buildUploadToken({
+      request: request('http://localhost:3000/api/reels/upload', 'POST', uploadBody),
+      body: uploadBody,
+      userId: null,
+      kind: 'reel',
+    })
+
+    expect(response.status).toBe(400)
+    expect(mocks.blobDelete).toHaveBeenCalledWith(blob.url)
+    expect(mocks.rateLimitResponse).not.toHaveBeenCalled()
+    expect(mocks.redis.set).not.toHaveBeenCalled()
+  })
+
+  it('uses the authenticated user key for generous token-request throttling', async () => {
+    const body = { type: 'blob.prepare-upload', contentType: 'video/mp4', sizeBytes: 100, durationSeconds: 30 }
+    const response = await buildUploadToken({
+      request: request('http://localhost:3000/api/reels/upload', 'POST', body),
+      body,
+      userId: USER_ID,
+      kind: 'reel',
+    })
+
+    expect(response.status).toBe(200)
+    expect(mocks.rateLimitResponse).toHaveBeenCalledWith(`upload-token:${USER_ID}`, 30, 600)
+    expect(mocks.rateLimitResponse).not.toHaveBeenCalledWith(`upload-completed:reel:${USER_ID}`, 5, 86_400)
+    expect(mocks.redis.set.mock.calls[0][0]).toMatch(new RegExp(`^disloop:upload:reels/${USER_ID}/`))
+  })
+
+  it('keeps upload token limits scoped to each authenticated user', async () => {
+    const userIds = [USER_ID, '33333333-3333-4333-8333-333333333333']
+    const body = { type: 'blob.prepare-upload', contentType: 'video/mp4', sizeBytes: 100, durationSeconds: 30 }
+
+    for (const userId of userIds) {
+      const response = await buildUploadToken({
+        request: request('http://localhost:3000/api/reels/upload', 'POST', body),
+        body,
+        userId,
+        kind: 'reel',
+      })
+      expect(response.status).toBe(200)
+    }
+
+    expect(mocks.rateLimitResponse.mock.calls.map(([key]) => key)).toEqual(userIds.map((userId) => `upload-token:${userId}`))
+  })
+
+  it('counts only validated completed uploads against the authenticated user daily quota', async () => {
+    const uploadId = '33333333-3333-4333-8333-333333333333'
+    const pathname = `reels/${USER_ID}/${uploadId}.mp4`
+    const reservationKey = `disloop:upload:${pathname}`
+    const blob = { pathname, url: 'https://blob.example/upload.mp4' }
+    const uploadBody = { type: 'blob.upload-completed', payload: {} }
+    mocks.redis.get.mockImplementation(async (key: string) => key === reservationKey
+      ? JSON.stringify({ userId: USER_ID, kind: 'reel', contentType: 'video/mp4' })
+      : null)
+    mocks.blobHead.mockResolvedValue({ pathname, contentType: 'video/mp4', size: 100 })
+    mocks.blobUploadHandler.mockImplementation(async (value) => {
+      const options = value as { onUploadCompleted: (event: { blob: typeof blob; tokenPayload: string }) => Promise<void> }
+      await options.onUploadCompleted({ blob, tokenPayload: JSON.stringify({ userId: USER_ID, pathname, kind: 'reel' }) })
+      return { url: blob.url }
+    })
+
+    const response = await buildUploadToken({
+      request: request('http://localhost:3000/api/reels/upload', 'POST', uploadBody),
+      body: uploadBody,
+      userId: null,
+      kind: 'reel',
+    })
+
+    expect(response.status).toBe(200)
+    expect(mocks.rateLimitResponse).toHaveBeenCalledWith(`upload-completed:reel:${USER_ID}`, 5, 86_400)
+  })
+
+  it('rejects an oversized reel before reserving an upload', async () => {
+    const body = { type: 'blob.prepare-upload', contentType: 'video/mp4', sizeBytes: 40 * 1024 * 1024 + 1, durationSeconds: 60 }
+    const response = await buildUploadToken({
+      request: request('http://localhost:3000/api/reels/upload', 'POST', body),
+      body,
+      userId: USER_ID,
+      kind: 'reel',
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ error: 'file_too_large', reason: 'file_too_large' })
+    expect(mocks.redis.set).not.toHaveBeenCalled()
+  })
+
+  it('rejects a reel duration above the server limit before reserving an upload', async () => {
+    const body = { type: 'blob.prepare-upload', contentType: 'video/mp4', sizeBytes: 100, durationSeconds: 60.1 }
+    const response = await buildUploadToken({
+      request: request('http://localhost:3000/api/reels/upload', 'POST', body),
+      body,
+      userId: USER_ID,
+      kind: 'reel',
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ error: 'invalid_input', reason: 'invalid_input' })
+    expect(mocks.redis.set).not.toHaveBeenCalled()
+  })
+
+  it('rejects negative XP and deduplicates repeat event claims', async () => {
+    const invalid = await awardXp(USER_ID, -1, 'news_published', 'negative-points')
+    expect(invalid).toBeNull()
+    expect(mocks.db.transaction).not.toHaveBeenCalled()
+
+    let eventRecorded = false
+    mocks.db.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback(
+      makeXpTransaction(() => eventRecorded, () => { eventRecorded = true }),
+    ))
+
+    const first = await awardXp(USER_ID, 3, 'news_published', 'post:unique-event')
+    const duplicate = await awardXp(USER_ID, 3, 'news_published', 'post:unique-event')
+
+    expect(first).toBe(3)
+    expect(duplicate).toBeNull()
+    expect(mocks.syncDiscordXpRole).toHaveBeenCalledTimes(1)
+  })
+
+  it('persists every level badge and Top Maker when XP reaches level 50', async () => {
+    let eventRecorded = false
+    const transaction = makeXpTransaction(() => eventRecorded, () => { eventRecorded = true }, 2510)
+    mocks.db.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback(transaction))
+
+    const xp = await awardXp(USER_ID, 20, 'news_published', 'post:level-50')
+
+    expect(xp).toBe(2510)
+    expect(transaction.insertValues[1]).toEqual([
+      { userId: USER_ID, badgeId: 'level-1-newcomer' },
+      { userId: USER_ID, badgeId: 'level-5-member' },
+      { userId: USER_ID, badgeId: 'level-10-active' },
+      { userId: USER_ID, badgeId: 'level-25-elite' },
+      { userId: USER_ID, badgeId: 'level-50-legend' },
+      { userId: USER_ID, badgeId: 'top-maker' },
+    ])
+  })
+})
