@@ -6,6 +6,7 @@ import { getReels } from '@/lib/reels'
 import { getPublicUserByUsername } from '@/lib/users'
 import { getCurrentUser } from '@/lib/session'
 import { getProfileVisitCount, recordProfileVisit } from '@/lib/profile-visits'
+import { areUsersBlocked } from '@/lib/relationship-access'
 
 type ProfilePageProps = {
   params: Promise<{ username: string }>
@@ -38,10 +39,13 @@ export default async function PublicProfilePage({ params }: ProfilePageProps) {
   const profile = await loadProfile(username)
   if (!profile) notFound()
 
-  const [posts, reels, viewer] = await Promise.all([
+  const viewer = await getCurrentUser()
+  if (viewer && viewer.id !== profile.id && await areUsersBlocked(viewer.id, profile.id)) {
+    return <main className="disloop-shell"><section className="section-view section-empty" aria-labelledby="profile-unavailable"><h1 id="profile-unavailable">Profile unavailable</h1><p>This profile is unavailable because one of you has blocked the other account.</p></section></main>
+  }
+  const [posts, reels] = await Promise.all([
     getNewsPostsByAuthor(profile.id),
     getReels(undefined, undefined, profile.id),
-    getCurrentUser(),
   ])
   let profileVisitCount: number | null = null
   if (viewer && viewer.id !== profile.id) {
@@ -52,7 +56,7 @@ export default async function PublicProfilePage({ params }: ProfilePageProps) {
   }
   return (
     <main className="disloop-shell public-profile-page">
-      <ProfileSection profile={profile} posts={posts} reels={reels} locale="en" profileVisitCount={profileVisitCount} />
+      <ProfileSection profile={profile} posts={posts} reels={reels} locale="en" profileVisitCount={profileVisitCount} viewer={viewer} />
     </main>
   )
 }

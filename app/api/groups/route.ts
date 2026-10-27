@@ -91,6 +91,10 @@ export async function GET(request: NextRequest) {
       headers: { 'Cache-Control': user ? 'private, no-store' : 'public, max-age=30, stale-while-revalidate=60' },
     })
   } catch (error) {
+    const code = databaseCode(error)
+    if (code === '42P01' || code === '42703') {
+      return NextResponse.json({ groups: [], topGroups: [], myGroup: null, hasCreatedGroup: false, unavailable: true }, { headers: { 'Cache-Control': 'private, no-store' } })
+    }
     return NextResponse.json(apiFailurePayload('groups_failed', error, 'GET /api/groups'), { status: 500 })
   }
 }

@@ -18,7 +18,10 @@ import { getVideoDurationSeconds, uploadMedia } from '@/lib/client-upload'
 import { localizedUploadError } from '@/lib/client-errors'
 import { compressImage } from '@/lib/image-compression'
 
-export type CommunityProfile = CurrentUser | PublicProfile
+export type CommunityProfile = (CurrentUser | PublicProfile) & {
+  followerCount?: number
+  followingCount?: number
+}
 
 type Locale = 'en' | 'ar'
 type UsernameAvailability = { valid: boolean; available?: boolean; reason?: string }
@@ -38,7 +41,7 @@ const profileCopy = {
     posts: 'News', reels: 'Reels', xp: 'XP', badges: 'Community badges', earned: 'Earned', next: 'Next milestone',
     copy: 'Copy profile link', copied: 'Link copied', copyError: 'Could not copy the profile link.', saveError: 'Could not save your profile.', usernameTaken: 'Username is already taken.',
     invalid: 'Use at least 3 characters for a regular username. 1–2 character handles require the Verified badge.', empty: 'No updates have been shared yet.', verified: 'Discord connected', privateVisits: 'Your profile visits', lastSevenDays: 'Last 7 days', noVisits: 'No visits yet',
-    showVisits: 'Show profile visits publicly', showVisitsHint: 'Let visitors see the number of member visits.', profileVisits: 'Profile visits', views: 'visits', hideLikes: 'Hide my likes from lists', hideLikesHint: 'Your likes will not appear in member lists.'
+    showVisits: 'Show profile visits publicly', showVisitsHint: 'Let visitors see the number of member visits.', profileVisits: 'Profile visits', views: 'visits', followers: 'followers', followingCount: 'following', hideLikes: 'Hide my likes from lists', hideLikesHint: 'Your likes will not appear in member lists.', follow: 'Follow', following: 'Following', followBack: 'Follow back', followError: 'Could not update follow status.'
   },
   ar: {
     about: 'نبذة عني', edit: 'تعديل الملف', save: 'حفظ التغييرات', cancel: 'إلغاء', saving: 'جارٍ الحفظ…', postsTab: 'المنشورات', repostsTab: 'إعادات النشر', repostedBy: 'أعاد النشر',
@@ -47,7 +50,7 @@ const profileCopy = {
     posts: 'الأخبار', reels: 'ريلز', xp: 'نقاط الخبرة', badges: 'شارات المجتمع', earned: 'مكتسبة', next: 'الإنجاز التالي',
     copy: 'نسخ رابط الملف', copied: 'تم نسخ الرابط', copyError: 'تعذر نسخ رابط الملف الشخصي.', saveError: 'تعذر حفظ الملف الشخصي.', usernameTaken: 'اسم المستخدم مستخدم بالفعل.',
     invalid: 'يجب أن يتكون اسم المستخدم العادي من ٣ أحرف على الأقل. تتطلب الأسماء من حرف أو حرفين شارة التوثيق.', empty: 'لم تتم مشاركة أي تحديثات بعد.', verified: 'Discord متصل', privateVisits: 'زيارات ملفك', lastSevenDays: 'آخر ٧ أيام', noVisits: 'لا توجد زيارات بعد',
-    showVisits: 'إظهار زيارات الملف', showVisitsHint: 'اسمح للزوار برؤية عدد زيارات الأعضاء.', profileVisits: 'زيارات الملف', views: 'زيارة', hideLikes: 'إخفاء إعجاباتي من القوائم', hideLikesHint: 'لن تظهر إعجاباتك في قوائم الأعضاء.'
+    showVisits: 'إظهار زيارات الملف', showVisitsHint: 'اسمح للزوار برؤية عدد زيارات الأعضاء.', profileVisits: 'زيارات الملف', views: 'زيارة', followers: 'متابع', followingCount: 'يتابع', hideLikes: 'إخفاء إعجاباتي من القوائم', hideLikesHint: 'لن تظهر إعجاباتك في قوائم الأعضاء.', follow: 'متابعة', following: 'تتابعه', followBack: 'متابعة متبادلة', followError: 'تعذر تحديث المتابعة.'
   },
 } satisfies Record<Locale, Record<string, string>>
 
@@ -82,6 +85,12 @@ async function fetchProfileVisits(url: string) {
   return response.json() as Promise<ProfileVisitStats>
 }
 
+async function fetchFollowStatus(url: string) {
+  const response = await fetch(url, { cache: 'no-store' })
+  if (!response.ok) throw new Error('follow_status_failed')
+  return response.json() as Promise<{ following: boolean; followsYou: boolean }>
+}
+
 function earnedBadges(profile: CommunityProfile, posts: NewsPost[], reels: CommunityReel[], locale: Locale) {
   return [
     { id: 'first-post', label: locale === 'ar' ? 'أول منشور' : 'First note', detail: locale === 'ar' ? 'شاركت منشورًا إخباريًا' : 'Shared a news post', earned: posts.length > 0 },
@@ -91,7 +100,7 @@ function earnedBadges(profile: CommunityProfile, posts: NewsPost[], reels: Commu
   ]
 }
 
-export function ProfileSection({ profile, posts, reels, locale, editable, profileVisitCount, onProfileSaved }: {
+export function ProfileSection({ profile, posts, reels, locale, editable, profileVisitCount, onProfileSaved, viewer }: {
   profile: CommunityProfile
   posts: NewsPost[]
   reels: CommunityReel[]
@@ -99,16 +108,21 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
   editable?: boolean
   profileVisitCount?: number | null
   onProfileSaved?: (profile: Partial<CurrentUser>) => void
+  viewer?: CurrentUser | null
 }) {
   const labels = profileCopy[locale]
   const [profileTab, setProfileTab] = useState<'posts' | 'reposts'>('posts')
   const { data: repostData } = useSWR<{ reposts: ProfileRepost[] }>(`/api/social/reposts?userId=${encodeURIComponent(profile.id)}`, fetchProfileReposts)
+  const followKey = !editable && viewer && viewer.id !== profile.id ? `/api/dm/follows/${encodeURIComponent(profile.id)}` : null
+  const { data: followData, mutate: mutateFollow } = useSWR<{ following: boolean; followsYou: boolean }>(followKey, fetchFollowStatus)
   const { data: visitStats } = useSWR<ProfileVisitStats>(editable ? '/api/profile/visits' : null, fetchProfileVisits)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const [copyFailed, setCopyFailed] = useState(false)
+  const [moderationBusy, setModerationBusy] = useState(false)
+  const [moderationMessage, setModerationMessage] = useState('')
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [bannerFile, setBannerFile] = useState<File | null>(null)
   const [removeAvatar, setRemoveAvatar] = useState(false)
@@ -147,6 +161,25 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
           : usernameAvailability?.available ? labels.usernameAvailable
             : checkingUsername ? labels.usernameChecking : ''
   const usernameAvailable = Boolean(usernameAvailability?.valid && usernameAvailability.available)
+
+  async function toggleProfileFollow() {
+    if (!followKey || !followData) return
+    const nextFollowing = !followData.following
+    const response = await fetch(followKey, { method: nextFollowing ? 'POST' : 'DELETE' })
+    if (!response.ok) throw new Error(labels.followError)
+    await mutateFollow({ ...followData, following: nextFollowing }, false)
+  }
+
+  async function moderateProfile(action: 'block' | 'unblock' | 'report') {
+    if (!viewer || viewer.id === profile.id) return
+    setModerationBusy(true)
+    try {
+      const response = action === 'report'
+        ? await fetch('/api/moderation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ targetUserId: profile.id, reason: 'profile_report' }) })
+        : await fetch(`/api/social/blocks?userId=${encodeURIComponent(profile.id)}`, { method: action === 'block' ? 'POST' : 'DELETE' })
+      setModerationMessage(response.ok ? (action === 'report' ? 'Report submitted.' : action === 'block' ? 'Account blocked.' : 'Account unblocked.') : 'Could not update this account.')
+    } finally { setModerationBusy(false) }
+  }
 
   async function copyProfileLink() {
     try {
@@ -212,7 +245,11 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
         {profile.avatarUrl ? <img className="profile-avatar" src={profile.avatarUrl} alt="" /> : <span className="profile-avatar profile-avatar-fallback"><UserRound aria-hidden="true" /></span>}
         <div className="profile-identity"><span className="profile-verified"><BadgeCheck aria-hidden="true" />{labels.verified}</span><h1 id="profile-title">{profile.displayName}<NewAccountBadge createdAt={profile.accountCreatedAt} locale={locale} /></h1><p dir="ltr">@{profile.username}<EquippedBadges userId={profile.id} locale={locale} /></p></div>
         {editable && !editing && <button className="profile-copy-button" type="button" onClick={() => { setValues({ username: profile.username, displayName: profile.displayName, bio: profile.bio, location: profile.location ?? '', socialLinks: { ...profile.socialLinks }, publicVisitCount: profile.publicVisitCount, hideLikes: profile.hideLikes }); setAvatarFile(null); setBannerFile(null); setRemoveAvatar(false); setRemoveBanner(false); setError(''); setEditing(true) }}><Pencil aria-hidden="true" />{labels.edit}</button>}
-        {!editable && <button className="profile-copy-button" type="button" onClick={copyProfileLink}><Link2 aria-hidden="true" />{copied ? labels.copied : labels.copy}</button>}
+        {!editable && <div className="profile-action-group">
+          {followKey && followData && <button className="profile-copy-button" type="button" aria-pressed={followData.following} onClick={() => void toggleProfileFollow().catch(() => setError(labels.followError))}><UserRound aria-hidden="true" />{followData.following ? labels.following : followData.followsYou ? labels.followBack : labels.follow}</button>}
+          <button className="profile-copy-button" type="button" onClick={copyProfileLink}><Link2 aria-hidden="true" />{copied ? labels.copied : labels.copy}</button>
+          {viewer && <div className="profile-moderation-menu"><button className="profile-copy-button" type="button" aria-label="Profile actions" onClick={() => setModerationMessage(moderationMessage ? '' : 'menu')}><ShieldAlert aria-hidden="true" />⋯</button>{moderationMessage === 'menu' && <div className="profile-moderation-popover"><button type="button" disabled={moderationBusy} onClick={() => void moderateProfile('block')}>Block</button><button type="button" disabled={moderationBusy} onClick={() => void moderateProfile('report')}>Report</button></div>}{moderationMessage && moderationMessage !== 'menu' && <p role="status">{moderationMessage}</p>}</div>}
+        </div>}
       </div>
       {copyFailed && <p className="profile-copy-error" role="status">{labels.copyError}</p>}
 
@@ -244,6 +281,7 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
       ) : (
         <>
           <p className="profile-bio">{profile.bio ? <RichText text={profile.bio} /> : labels.about}</p>
+          <div className="profile-follow-stats" aria-label={locale === 'ar' ? 'إحصاءات المتابعة' : 'Follow statistics'}><a href={`/u/${encodeURIComponent(profile.username)}/followers`}><strong>{(profile.followerCount ?? 0).toLocaleString(locale === 'ar' ? 'ar' : 'en')} <span>{labels.followers}</span></strong></a><a href={`/u/${encodeURIComponent(profile.username)}/following`}><strong>{(profile.followingCount ?? 0).toLocaleString(locale === 'ar' ? 'ar' : 'en')} <span>{labels.followingCount}</span></strong></a></div>
           <div className="profile-details">
             <div><span>{labels.discord}</span><strong dir="ltr">@{profile.discordUsername}</strong></div>
             {profile.location && <div><span>{labels.location}</span><strong><MapPin aria-hidden="true" />{profile.location}</strong></div>}

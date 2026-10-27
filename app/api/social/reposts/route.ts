@@ -9,6 +9,7 @@ import { requireLoggedInServerMember } from '@/lib/server-member'
 import { getCurrentUser } from '@/lib/session'
 import { rateLimitResponse } from '@/lib/rate-limit'
 import { parseJsonBody } from '@/lib/validation'
+import { areUsersBlocked } from '@/lib/relationship-access'
 import { z } from 'zod'
 
 const contentTypes = new Set<SocialContentType>(['news', 'reel', 'daily'])
@@ -89,6 +90,7 @@ export async function POST(request: NextRequest) {
     const original = source[0]
     if (!original) return NextResponse.json({ error: 'content_not_found' }, { status: 404 })
     if (original.authorId === user.id) return NextResponse.json({ error: 'cannot_repost_own_content' }, { status: 403 })
+    if (await areUsersBlocked(user.id, original.authorId)) return NextResponse.json({ error: 'blocked_user' }, { status: 403 })
     const [created] = await db.insert(disloopReposts).values({ userId: user.id, contentType: type, contentId }).onConflictDoNothing().returning({ id: disloopReposts.id })
     if (created) {
       await Promise.allSettled([

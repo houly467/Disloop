@@ -1,6 +1,7 @@
 import { desc, sql } from 'drizzle-orm'
 import {
   boolean,
+  check,
   date,
   doublePrecision,
   index,
@@ -159,6 +160,20 @@ export const disloopXpEvents = pgTable(
   (table) => [index('disloop_xp_events_user_created_idx').on(table.userId, table.createdAt)],
 )
 
+export const disloopBlocks = pgTable(
+  'disloop_blocks',
+  {
+    blockerId: uuid('blocker_id').notNull(),
+    blockedId: uuid('blocked_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.blockerId, table.blockedId] }),
+    index('disloop_blocks_blocked_idx').on(table.blockedId),
+    check('disloop_blocks_check', sql`${table.blockerId} <> ${table.blockedId}`),
+  ],
+)
+
 export const disloopFollows = pgTable(
   'disloop_follows',
   {
@@ -166,7 +181,10 @@ export const disloopFollows = pgTable(
     followedId: uuid('followed_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.followerId, table.followedId] })],
+  (table) => [
+    primaryKey({ columns: [table.followerId, table.followedId] }),
+    index('disloop_follows_followed_idx').on(table.followedId),
+  ],
 )
 
 export const disloopDmConversations = pgTable(
@@ -454,4 +472,3 @@ export const disloopRateLimits = pgTable(
   },
   (table) => [primaryKey({ columns: [table.bucketKey, table.windowStart] })],
 )
-

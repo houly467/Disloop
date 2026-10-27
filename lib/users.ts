@@ -1,6 +1,6 @@
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { disloopUserBadges, disloopUsers } from '@/lib/db/schema'
+import { disloopFollows, disloopUserBadges, disloopUsers } from '@/lib/db/schema'
 import type { DiscordIdentity } from '@/lib/discord'
 import type { ProfileDetails } from '@/lib/profile'
 
@@ -35,6 +35,8 @@ export type PublicProfile = ProfileDetails & {
   username: string
   isMember: boolean
   accountCreatedAt: string
+  followerCount: number
+  followingCount: number
 }
 
 export type CommunityMember = {
@@ -95,6 +97,8 @@ export async function getPublicUserByUsername(username: string) {
       xp: disloopUsers.xp,
       isMember: disloopUsers.isMember,
       accountCreatedAt: disloopUsers.createdAt,
+      followerCount: sql<number>`(select count(*)::int from ${disloopFollows} where ${disloopFollows.followedId} = ${disloopUsers.id})`,
+      followingCount: sql<number>`(select count(*)::int from ${disloopFollows} where ${disloopFollows.followerId} = ${disloopUsers.id})`,
     })
     .from(disloopUsers)
     .where(eq(disloopUsers.usernameLower, normalizedUsername))

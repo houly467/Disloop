@@ -7,6 +7,7 @@ import { getCurrentUser } from '@/lib/session'
 import { requireLoggedInServerMember } from '@/lib/server-member'
 import { isUuid } from '@/lib/dm'
 import { rateLimitResponse } from '@/lib/rate-limit'
+import { areUsersBlocked } from '@/lib/relationship-access'
 import { parseJsonBody } from '@/lib/validation'
 import { z } from 'zod'
 
@@ -46,6 +47,7 @@ export async function POST(request: NextRequest) {
     const post = content[0]
     if (!post) return NextResponse.json({ error: 'content_not_found' }, { status: 404 })
     if (post.authorId === user.id) return NextResponse.json({ error: 'cannot_like_own_content' }, { status: 403 })
+    if (await areUsersBlocked(user.id, post.authorId)) return NextResponse.json({ error: 'blocked_user' }, { status: 403 })
     const [existing] = await db.select({ userId: disloopLikes.userId }).from(disloopLikes).where(and(eq(disloopLikes.contentType, contentType), eq(disloopLikes.contentId, data.contentId), eq(disloopLikes.userId, user.id))).limit(1)
     let liked = Boolean(existing)
     if (existing) {
