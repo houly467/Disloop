@@ -130,6 +130,69 @@ export const disloopStories = pgTable(
   (table) => [index('disloop_stories_expiry_idx').on(table.expiresAt)],
 )
 
+export const disloopCloseFriends = pgTable(
+  'disloop_close_friends',
+  {
+    ownerId: uuid('owner_id').notNull(),
+    friendId: uuid('friend_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.ownerId, table.friendId] }),
+    index('disloop_close_friends_friend_idx').on(table.friendId),
+  ],
+)
+
+export const disloopStoryVisibility = pgTable(
+  'disloop_story_visibility',
+  {
+    storyId: uuid('story_id').primaryKey(),
+    authorId: uuid('author_id').notNull(),
+    closeFriendsOnly: boolean('close_friends_only').notNull().default(false),
+  },
+  (table) => [index('disloop_story_visibility_author_idx').on(table.authorId)],
+)
+
+export const disloopProfilePreferences = pgTable('disloop_profile_preferences', {
+  userId: uuid('user_id').primaryKey(),
+  theme: varchar('theme', { length: 24 }).notNull().default('default'),
+  profileLink: text('profile_link'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const disloopReelViews = pgTable('disloop_reel_views', {
+  reelId: uuid('reel_id').notNull(),
+  viewerId: uuid('viewer_id').notNull(),
+  viewedAt: timestamp('viewed_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.reelId, table.viewerId] }),
+  index('disloop_reel_views_viewed_idx').on(table.viewedAt),
+])
+
+export const disloopInvites = pgTable('disloop_invites', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  inviterId: uuid('inviter_id').notNull(),
+  inviteCode: varchar('invite_code', { length: 24 }).notNull().unique(),
+  inviteeId: uuid('invitee_id'),
+  rewardedAt: timestamp('rewarded_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index('disloop_invites_inviter_idx').on(table.inviterId, table.createdAt),
+  uniqueIndex('disloop_invites_invitee_unique').on(table.inviteeId).where(sql`${table.inviteeId} IS NOT NULL`),
+])
+
+export const disloopVerificationRequests = pgTable('disloop_verification_requests', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').notNull(),
+  reason: varchar('reason', { length: 500 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('open'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+}, (table) => [
+  index('disloop_verification_requests_user_idx').on(table.userId, table.status),
+  uniqueIndex('disloop_verification_requests_open_unique').on(table.userId).where(sql`${table.status} = 'open'`),
+])
+
 export const disloopDailyPosts = pgTable(
   'disloop_daily_posts',
   {

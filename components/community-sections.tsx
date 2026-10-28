@@ -24,8 +24,9 @@ import { compressImage } from '@/lib/image-compression'
 import { UserName } from '@/components/user-name'
 import { ReportDialog } from '@/components/report-dialog'
 import { countWords } from '@/lib/tags'
+import { ProfileTools } from '@/components/profile-tools'
 
-export type CommunityProfile = (CurrentUser & { nameStyle?: string | null; customTitle?: string | null }) | PublicProfile
+export type CommunityProfile = (CurrentUser & { nameStyle?: string | null; customTitle?: string | null; profileTheme?: string; profileLink?: string | null }) | PublicProfile
 
 type Locale = 'en' | 'ar'
 type UsernameAvailability = { valid: boolean; available?: boolean; reason?: string }
@@ -393,7 +394,7 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
   }
 
   return (
-    <section className="section-view profile-view" aria-labelledby="profile-title">
+    <section className="section-view profile-view" aria-labelledby="profile-title" data-profile-theme={profile.profileTheme ?? 'default'}>
       <div className="profile-banner" style={profile.profileBannerUrl ? { backgroundImage: `url("${profile.profileBannerUrl}")` } : undefined} />
       <div className="profile-overview">
         {profile.avatarUrl ? <img className="profile-avatar" src={profile.avatarUrl} alt="" /> : <span className="profile-avatar profile-avatar-fallback"><UserRound aria-hidden="true" /></span>}
@@ -416,6 +417,8 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
       </div>
       {copyFailed && <p className="profile-copy-error" role="status">{labels.copyError}</p>}
       <ReportDialog open={reportOpen} onClose={() => setReportOpen(false)} targetType="user" targetId={profile.id} locale={locale} />
+      {profile.profileLink && <a className="profile-custom-link" href={profile.profileLink} target="_blank" rel="noopener noreferrer">{profile.profileLink}</a>}
+      {editable && <ProfileTools locale={locale} />}
 
       {editing ? (
         <form className="profile-edit-form" onSubmit={saveProfile}>
@@ -535,6 +538,7 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
   const [error, setError] = useState('')
   const [bookmarkError, setBookmarkError] = useState('')
   const [composerOpen, setComposerOpen] = useState(false)
+  const [playbackRate, setPlaybackRate] = useState(1)
   const [likedReelIds, setLikedReelIds] = useState<Set<string>>(() => new Set())
   const reelBookmarkKey = viewer ? `/api/social/bookmarks?contentType=reel&ids=${reels.map((reel) => reel.id).join(',')}` : null
   const { data: savedReels, mutate: mutateSavedReels } = useSWR<{ savedIds: string[]; available: boolean }>(reelBookmarkKey, async (url: string) => {
@@ -543,6 +547,18 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
     return response.json()
   })
   const visibleReels = reels.filter((reel) => !likedReelIds.has(reel.id))
+
+  useEffect(() => {
+    const storedRate = Number(window.localStorage.getItem('disloop-reel-playback-rate'))
+    if ([0.5, 1, 1.5, 2].includes(storedRate)) setPlaybackRate(storedRate)
+  }, [])
+
+  useEffect(() => {
+    document.querySelectorAll<HTMLVideoElement>('.reels-section .reel-video').forEach((video) => {
+      video.playbackRate = playbackRate
+    })
+    window.localStorage.setItem('disloop-reel-playback-rate', String(playbackRate))
+  }, [playbackRate, visibleReels])
 
   async function toggleReelBookmark(reelId: string) {
     if (!viewer) return onSignIn()
@@ -628,6 +644,7 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
       <div className="section-heading reels-heading"><div><span className="section-kicker"><Video aria-hidden="true" />{labels.title}</span><h1 id="reels-title">{labels.title}</h1><p>{labels.description}</p></div></div>
       <div className="reel-creation-bar" aria-label={labels.publish}>
         <span>{locale === 'ar' ? 'شارك مقطعًا مع المجتمع' : 'Create and share a video with the community'}</span>
+        <label className="reel-speed-control">{locale === 'ar' ? 'سرعة التشغيل' : 'Playback speed'} <select aria-label={locale === 'ar' ? 'سرعة تشغيل الريلز' : 'Reel playback speed'} value={playbackRate} onChange={(event) => setPlaybackRate(Number(event.target.value))}><option value={0.5}>0.5×</option><option value={1}>1×</option><option value={1.5}>1.5×</option><option value={2}>2×</option></select></label>
         {viewer
           ? <button className="section-primary-button reel-compose-trigger" type="button" onClick={() => void openComposer()}><Plus aria-hidden="true" />{labels.publish}</button>
           : <button className="section-primary-button reel-compose-trigger" type="button" onClick={onSignIn}>{labels.signIn}<ArrowUpRight aria-hidden="true" /></button>}
@@ -645,7 +662,7 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
       </ModalPortal>}
       {visibleReels.length ? <div className="reel-feed" role="region" aria-label={labels.title} tabIndex={0}><div className="reel-list">{visibleReels.map((reel) => <article className="reel-card reel-slide" id={`reel-${reel.id}`} key={reel.id}>
         <div className="reel-stage">
-        <video className="reel-video" controls playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.title} />
+        <video className="reel-video" controls playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.title} onPlay={() => { if (viewer) void fetch(`/api/reels/${encodeURIComponent(reel.id)}/view`, { method: 'POST' }).catch(() => undefined) }} />
         <div className="reel-card-content"><div className="reel-author"><span>{reel.authorAvatar ? <img src={reel.authorAvatar} alt="" /> : <UserRound aria-hidden="true" />}</span><a href={`/u/${encodeURIComponent(reel.authorUsername)}`}><UserName userId={reel.authorId} name={reel.authorName} username={reel.authorUsername} createdAt={reel.authorCreatedAt} nameStyle={reel.authorNameStyle} customTitle={reel.authorCustomTitle} locale={locale} /></a><button type="button" className={`reel-bookmark-button ${savedReels?.savedIds.includes(reel.id) ? 'reel-bookmark-saved' : ''}`} aria-label={locale === 'ar' ? 'حفظ الريل' : 'Save Reel'} onClick={() => void toggleReelBookmark(reel.id)}>{savedReels?.savedIds.includes(reel.id) ? <Check aria-hidden="true" /> : <Bookmark aria-hidden="true" />}</button></div>
           {reel.caption && <p><RichText text={reel.caption} /></p>}
           {reel.tags.length > 0 && <div className="tag-row">{reel.tags.map((tag) => <a className="post-tag" key={tag} href={`/tags/${encodeURIComponent(tag)}?lang=${locale}`}>#{tag}</a>)}</div>}

@@ -1,9 +1,10 @@
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { disloopUserFlair, disloopUsers } from '@/lib/db/schema'
+import { disloopProfilePreferences, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
 import type { DiscordIdentity } from '@/lib/discord'
 import type { ProfileDetails } from '@/lib/profile'
 import { getFollowCounts } from '@/lib/social-follows'
+import { safeApiFailureReason } from '@/lib/api-errors'
 
 const RESERVED_USERNAMES = new Set([
   'admin', 'administrator', 'mod', 'moderator', 'support', 'help', 'news', 'reels', 'search',
@@ -40,6 +41,8 @@ export type PublicProfile = ProfileDetails & {
   followingCount: number
   nameStyle: string | null
   customTitle: string | null
+  profileTheme?: string
+  profileLink?: string | null
 }
 
 export type CommunityMember = {
@@ -137,11 +140,23 @@ export async function getPublicUserByUsername(username: string) {
 
   if (!user) return null
   const followCounts = await getFollowCounts(user.id)
+  let preferences: { theme: string; profileLink: string | null } | undefined
+  try {
+    const [row] = await db.select({
+      theme: disloopProfilePreferences.theme,
+      profileLink: disloopProfilePreferences.profileLink,
+    }).from(disloopProfilePreferences).where(eq(disloopProfilePreferences.userId, user.id)).limit(1)
+    preferences = row
+  } catch (error) {
+    if (safeApiFailureReason(error) !== 'missing_table') console.error('[profile-preferences] public profile lookup failed', { userId: user.id, error })
+  }
   return {
     ...user,
     followerCount: followCounts.followersCount,
     followingCount: followCounts.followingCount,
     accountCreatedAt: user.accountCreatedAt.toISOString(),
+    profileTheme: preferences?.theme ?? 'default',
+    profileLink: preferences?.profileLink ?? null,
   }
 }
 
