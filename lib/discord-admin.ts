@@ -1,4 +1,3 @@
-import { createPublicKey, verify as verifyEd25519Signature } from 'node:crypto'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { BADGE_BY_ID } from '@/lib/badges'
@@ -11,20 +10,67 @@ import {
   disloopUsers,
 } from '@/lib/db/schema'
 
-const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')
 const DISCORD_SNOWFLAKE = /^\d{17,20}$/
-export const DISCORD_ADMIN_CHANNEL_ID = '1564324879761674311'
-export const DISCORD_ADMIN_ALLOWED_ROLE_IDS = [
-  '1484079237999624373',
-  '1473658138619281619',
-  '1564325770283982910',
-] as const
+export {
+  canUseDiscordNameStyleActions,
+  DISCORD_ADMIN_ALLOWED_ROLE_IDS,
+  DISCORD_ADMIN_CHANNEL_ID,
+  hasDiscordAdminRole,
+  isDiscordAdminChannel,
+  verifyDiscordInteractionSignature,
+} from '@/lib/discord-interaction-security'
+import { canUseDiscordNameStyleActions } from '@/lib/discord-interaction-security'
 const websiteUsernamePattern = /^(?:[a-z0-9]|[a-z0-9][a-z0-9._]{0,18}[a-z0-9])$/
 const discordUsernamePattern = /^[a-z0-9._]{2,32}$/
 
 type AdminAction = 'badge_grant' | 'badge_revoke' | 'user_ban' | 'user_unban' | 'name_style_set' | 'name_style_remove'
 type AdminActor = { discordId: string; username: string }
 type ResolvedTarget = { id: string; discordId: string; username: string; discordUsername: string }
+
+export const DISCORD_QUICK_ROLE_ACTIONS = {
+  'give-owner': { label: 'For Owner', title: 'Owner', badgeId: null, discordRoleId: '1484079237999624373', operation: 'give' },
+  'give-partner': { label: 'For Partner', title: 'Partner', badgeId: 'partner', discordRoleId: '1564325770283982910', operation: 'give' },
+  'give-dev': { label: 'For Dev', title: 'Dev', badgeId: 'developer', discordRoleId: '1473658138619281619', operation: 'give' },
+  'give-rainbow': { label: 'Rainbow', title: null, badgeId: null, discordRoleId: null, operation: 'give' },
+  'remove-owner': { label: 'Remove Owner', title: 'Owner', badgeId: null, discordRoleId: '1484079237999624373', operation: 'remove' },
+  'remove-partner': { label: 'Remove Partner', title: 'Partner', badgeId: 'partner', discordRoleId: '1564325770283982910', operation: 'remove' },
+  'remove-dev': { label: 'Remove Dev', title: 'Dev', badgeId: 'developer', discordRoleId: '1473658138619281619', operation: 'remove' },
+  'remove-rainbow': { label: 'Remove Rainbow', title: null, badgeId: null, discordRoleId: null, operation: 'remove' },
+} as const
+
+export type DiscordQuickRoleAction = keyof typeof DISCORD_QUICK_ROLE_ACTIONS
+
+export class DiscordGuildRoleSyncError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'DiscordGuildRoleSyncError'
+  }
+}
+
+export async function syncDiscordGuildRole(
+  discordUserId: string,
+  roleId: string,
+  operation: 'give' | 'remove',
+) {
+  const botToken = process.env.DISCORD_BOT_TOKEN
+  const guildId = process.env.DISCORD_GUILD_ID
+  if (!botToken || !guildId) {
+    throw new DiscordGuildRoleSyncError('Discord role sync is not configured (missing bot token or guild ID).')
+  }
+
+  const response = await fetch(
+    `${DISCORD_API}/guilds/${encodeURIComponent(guildId)}/members/${encodeURIComponent(discordUserId)}/roles/${encodeURIComponent(roleId)}`,
+    {
+      method: operation === 'give' ? 'PUT' : 'DELETE',
+      headers: { Authorization: `Bot ${botToken}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(8_000),
+    },
+  )
+  if (!response.ok) {
+    throw new DiscordGuildRoleSyncError(`Discord rejected the role change (HTTP ${response.status}). Check the bot's Manage Roles permission and role hierarchy.`)
+  }
+}
 
 export const DISCORD_AUDIT_CHANNELS: Record<AdminAction, string> = {
   user_ban: '1564362108819472384',
@@ -129,39 +175,65 @@ export class DiscordAdminInputError extends Error {
   }
 }
 
-export function verifyDiscordInteractionSignature(
-  body: string,
-  signature: string | null,
-  timestamp: string | null,
-  publicKey: string,
-  now = Date.now(),
-) {
-  if (!signature || !timestamp || !/^\d+$/.test(timestamp) || !/^[a-f\d]{128}$/i.test(signature) || !/^[a-f\d]{64}$/i.test(publicKey)) return false
-  const timestampMs = Number(timestamp) * 1000
-  if (!Number.isFinite(timestampMs) || Math.abs(now - timestampMs) > 5 * 60 * 1000) return false
+function getErrorCause(error: unknown): Error | null {
+  if (!(error instanceof Error)) return null
+  let current = error
+  const seen = new Set<Error>([current])
+  while (current.cause instanceof Error && !seen.has(current.cause)) {
+    current = current.cause
+    seen.add(current)
+  }
+  return current
+}
 
-  try {
-    const key = createPublicKey({
-      key: Buffer.concat([ED25519_SPKI_PREFIX, Buffer.from(publicKey, 'hex')]),
-      format: 'der',
-      type: 'spki',
-    })
-    return verifyEd25519Signature(null, Buffer.from(`${timestamp}${body}`, 'utf8'), key, Buffer.from(signature, 'hex'))
-  } catch {
-    return false
+function redactErrorSecrets(value: string) {
+  let safeValue = value
+  for (const key of [
+    'DATABASE_URL',
+    'POSTGRES_URL',
+    'POSTGRES_URL_NON_POOLING',
+    'DISCORD_BOT_TOKEN',
+    'DISCORD_PUBLIC_KEY',
+    'DISCORD_CLIENT_SECRET',
+    'SESSION_SECRET',
+    'BLOB_READ_WRITE_TOKEN',
+  ]) {
+    const secret = process.env[key]
+    if (secret && secret.length >= 8) safeValue = safeValue.split(secret).join('[REDACTED]')
+  }
+  return safeValue
+    .replace(/postgres(?:ql)?:\/\/[^@\s]+@/gi, 'postgres://[REDACTED]@')
+    .replace(/(Authorization:\s*Bot\s+)[^\s]+/gi, '$1[REDACTED]')
+}
+
+export function getDiscordAdminErrorDiagnostics(error: unknown) {
+  const cause = getErrorCause(error)
+  if (!cause) {
+    return { name: 'UnknownError', message: 'Unknown admin action failure.', stack: undefined, code: undefined, constraint: undefined }
+  }
+  const dbError = cause as Error & { code?: string; constraint?: string }
+  return {
+    name: cause.name,
+    message: redactErrorSecrets(cause.message),
+    stack: cause.stack ? redactErrorSecrets(cause.stack) : undefined,
+    code: dbError.code,
+    constraint: dbError.constraint,
   }
 }
 
-export function hasDiscordAdminRole(roleIds: string[]) {
-  return DISCORD_ADMIN_ALLOWED_ROLE_IDS.some((roleId) => roleIds.includes(roleId))
+export function getDiscordAdminErrorResponse(error: unknown) {
+  const cause = getErrorCause(error) as (Error & { code?: string; constraint?: string }) | null
+  if (cause?.code === '23514' && cause.constraint === 'disloop_admin_audit_action_check') {
+    return 'The database rejected the admin audit action. No changes were saved; please contact an administrator.'
+  }
+  if (cause?.code?.startsWith('23')) {
+    return 'A database constraint rejected this action. No changes were saved; please contact an administrator.'
+  }
+  return 'A database error prevented this action. No changes were saved; please try again later.'
 }
 
-export function canUseDiscordNameStyleActions(roleIds: string[]) {
-  return hasDiscordAdminRole(roleIds)
-}
-
-export function isDiscordAdminChannel(channelId: string | undefined) {
-  return channelId === DISCORD_ADMIN_CHANNEL_ID
+export function getDiscordAdminAuditStorageAction(action: 'name_style_set' | 'name_style_remove') {
+  return action === 'name_style_set' ? 'badge_grant' : 'badge_revoke'
 }
 
 export function sanitizeCustomTitle(value: string) {
@@ -204,6 +276,12 @@ export function parseUserIdentifiers(value: unknown) {
   }
 
   return { tokens, invalid }
+}
+
+export function parseQuickRoleUsers(fields: Record<string, string>) {
+  const parsed = z.object({ users: z.string().trim().min(1).max(2500) }).strict().safeParse(fields)
+  if (!parsed.success) throw new DiscordAdminInputError('Enter at least one username or Discord ID.')
+  return parseUserIdentifiers(parsed.data.users)
 }
 
 function parseBadgeIds(value: unknown) {
@@ -322,7 +400,7 @@ export async function applyDiscordNameStyle(
       actorUsername: actor.username.slice(0, 100),
       targetUserId: target.id,
       targetDiscordId: target.discordId,
-      action,
+      action: getDiscordAdminAuditStorageAction(action),
       badges: [],
       reason: action === 'name_style_remove'
         ? 'Removed custom name style and title.'
@@ -340,6 +418,178 @@ export async function applyDiscordNameStyle(
     })
   }
   return { updated: targets.length, skipped: [...invalid, ...unresolved] }
+}
+
+export async function applyDiscordQuickRoleAction(
+  action: DiscordQuickRoleAction,
+  fields: Record<string, string>,
+  actor: AdminActor,
+) {
+  const definition = DISCORD_QUICK_ROLE_ACTIONS[action]
+  const { tokens, invalid } = parseQuickRoleUsers(fields)
+  const { targets, unresolved } = await resolveTargets(tokens)
+  if (!targets.length) return { updatedUsers: [], skipped: [...invalid, ...unresolved], auditLogFailed: false }
+
+  const now = new Date()
+  const userIds = targets.map((target) => target.id)
+  const badgeId = definition.badgeId
+  const isGiving = definition.operation === 'give'
+  const isRemovingOwner = action === 'remove-owner'
+  const needsCurrentFlair = !isGiving && action !== 'remove-rainbow'
+  let auditLogFailed = false
+
+  await db.transaction(async (tx) => {
+    const currentFlair = needsCurrentFlair
+      ? await tx.select({
+        userId: disloopUserFlair.userId,
+        nameStyle: disloopUserFlair.nameStyle,
+        customTitle: disloopUserFlair.customTitle,
+      }).from(disloopUserFlair).where(inArray(disloopUserFlair.userId, userIds))
+      : []
+    const flairByUser = new Map(currentFlair.map((flair) => [flair.userId, flair]))
+    const currentBadges = isRemovingOwner
+      ? await tx.select({
+        userId: disloopUserBadges.userId,
+        badgeId: disloopUserBadges.badgeId,
+      }).from(disloopUserBadges).where(inArray(disloopUserBadges.userId, userIds))
+      : []
+    const badgeIdsByUser = new Map<string, Set<string>>()
+    for (const badge of currentBadges) {
+      const userBadges = badgeIdsByUser.get(badge.userId) ?? new Set<string>()
+      userBadges.add(badge.badgeId)
+      badgeIdsByUser.set(badge.userId, userBadges)
+    }
+
+    if (isGiving || action === 'remove-rainbow') {
+      await tx.insert(disloopUserFlair).values(targets.map((target) => ({
+        userId: target.id,
+        nameStyle: isGiving ? 'rainbow' : null,
+        customTitle: isGiving ? definition.title : null,
+        updatedBy: actor.discordId,
+        updatedAt: now,
+      }))).onConflictDoUpdate({
+        target: disloopUserFlair.userId,
+        set: {
+          nameStyle: isGiving ? 'rainbow' : null,
+          ...(isGiving ? { customTitle: definition.title } : {}),
+          updatedBy: actor.discordId,
+          updatedAt: now,
+        },
+      })
+    } else {
+      const flairUpdates = targets.flatMap((target) => {
+        const flair = flairByUser.get(target.id)
+        const shouldClearTitle = flair?.customTitle?.toLowerCase() === definition.title?.toLowerCase()
+        if (!flair || !shouldClearTitle) return []
+
+        const hasOtherTitle = Boolean(flair.customTitle && !shouldClearTitle)
+        const hasOtherRole = (badgeIdsByUser.get(target.id)?.size ?? 0) > 0
+        const shouldClearRainbow = isRemovingOwner
+          && flair.nameStyle === 'rainbow'
+          && !hasOtherTitle
+          && !hasOtherRole
+        return [{
+          userId: target.id,
+          nameStyle: shouldClearRainbow ? null : flair.nameStyle,
+          customTitle: null,
+          updatedBy: actor.discordId,
+          updatedAt: now,
+        }]
+      })
+      if (flairUpdates.length) {
+        for (const update of flairUpdates) {
+          await tx.update(disloopUserFlair).set({
+            nameStyle: update.nameStyle,
+            customTitle: update.customTitle,
+            updatedBy: update.updatedBy,
+            updatedAt: update.updatedAt,
+          }).where(eq(disloopUserFlair.userId, update.userId))
+        }
+      }
+    }
+
+    if (badgeId && isGiving) {
+      await tx.delete(disloopUserBadgeRevocations).where(and(
+        inArray(disloopUserBadgeRevocations.userId, userIds),
+        eq(disloopUserBadgeRevocations.badgeId, badgeId),
+      ))
+      await tx.insert(disloopUserBadges).values(userIds.map((userId) => ({ userId, badgeId }))).onConflictDoNothing()
+    } else if (badgeId) {
+      await tx.delete(disloopUserBadges).where(and(
+        inArray(disloopUserBadges.userId, userIds),
+        eq(disloopUserBadges.badgeId, badgeId),
+      ))
+      await tx.insert(disloopUserBadgeRevocations).values(userIds.map((userId) => ({
+        userId,
+        badgeId,
+        actorDiscordId: actor.discordId,
+        revokedAt: now,
+      }))).onConflictDoUpdate({
+        target: [disloopUserBadgeRevocations.userId, disloopUserBadgeRevocations.badgeId],
+        set: { actorDiscordId: actor.discordId, revokedAt: now },
+      })
+    }
+
+    const storageAction: AdminAction = isGiving ? 'badge_grant' : 'badge_revoke'
+    await tx.insert(disloopAdminAudit).values(targets.map((target) => ({
+      actorDiscordId: actor.discordId,
+      actorUsername: actor.username.slice(0, 100),
+      targetUserId: target.id,
+      targetDiscordId: target.discordId,
+      action: storageAction,
+      badges: badgeId ? [badgeId] : [],
+      reason: `Quick role action: ${action}.`,
+    })))
+  })
+
+  const styleAuditAction: AdminAction = isGiving ? 'name_style_set' : 'name_style_remove'
+  auditLogFailed = !(await sendDiscordAuditLog(
+    styleAuditAction,
+    buildDiscordAuditEmbed(styleAuditAction, targets, actor, badgeId ? [badgeId] : [], `Quick role action: ${action}.`, now),
+  ))
+  if (badgeId) {
+    const badgeAuditAction: AdminAction = isGiving ? 'badge_grant' : 'badge_revoke'
+    const badgeAuditSent = await sendDiscordAuditLog(
+      badgeAuditAction,
+      buildDiscordAuditEmbed(badgeAuditAction, targets, actor, [badgeId], null, now),
+    )
+    auditLogFailed = !badgeAuditSent || auditLogFailed
+  }
+  if (auditLogFailed) {
+    console.error('[discord-admin] Quick role audit log delivery failed.', { action })
+  }
+  const roleFailures: string[] = []
+  if (definition.discordRoleId) {
+    for (const target of targets) {
+      try {
+        await syncDiscordGuildRole(target.discordId, definition.discordRoleId, definition.operation)
+      } catch (error) {
+        const reason = error instanceof DiscordGuildRoleSyncError
+          ? error.message
+          : 'Discord role change failed unexpectedly.'
+        roleFailures.push(`${target.username} (${reason})`)
+        console.error('[discord-admin] Discord guild role change failed.', {
+          action,
+          targetDiscordId: target.discordId,
+          message: reason,
+        })
+      }
+    }
+  }
+  for (const target of targets) {
+    console.info('[discord-admin] Quick role action applied.', {
+      action,
+      actorDiscordId: actor.discordId,
+      targetDiscordId: target.discordId,
+    })
+  }
+
+  return {
+    updatedUsers: targets.map((target) => target.username),
+    skipped: [...invalid, ...unresolved],
+    roleFailures,
+    auditLogFailed,
+  }
 }
 
 export async function applyDiscordAdminAction(

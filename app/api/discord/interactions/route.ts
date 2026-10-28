@@ -2,12 +2,11 @@ import { after } from 'next/server'
 import { z } from 'zod'
 import { BADGES } from '@/lib/badges'
 import {
-  applyDiscordAdminAction,
-  applyDiscordNameStyle,
   canUseDiscordNameStyleActions,
+  getDiscordInteractionSignatureFailure,
   isDiscordAdminChannel,
   verifyDiscordInteractionSignature,
-} from '@/lib/discord-admin'
+} from '@/lib/discord-interaction-security'
 
 export const runtime = 'nodejs'
 
@@ -21,11 +20,18 @@ const actionDefinitions = {
   'name-style-remove': { capability: 'badges', action: 'name_style_remove', label: 'Remove name style', title: 'Remove name style' },
   'user-ban': { capability: 'bans', action: 'user_ban', label: 'Ban from Disloop', title: 'Ban from Disloop' },
   'user-unban': { capability: 'bans', action: 'user_unban', label: 'Unban from Disloop', title: 'Unban from Disloop' },
+  'give-owner': { capability: 'badges', action: 'quick_role', label: 'For Owner', title: 'For Owner' },
+  'give-partner': { capability: 'badges', action: 'quick_role', label: 'For Partner', title: 'For Partner' },
+  'give-dev': { capability: 'badges', action: 'quick_role', label: 'For Dev', title: 'For Dev' },
+  'give-rainbow': { capability: 'badges', action: 'quick_role', label: 'Rainbow', title: 'Rainbow' },
+  'remove-owner': { capability: 'badges', action: 'quick_role', label: 'Remove Owner', title: 'Remove Owner' },
+  'remove-partner': { capability: 'badges', action: 'quick_role', label: 'Remove Partner', title: 'Remove Partner' },
+  'remove-dev': { capability: 'badges', action: 'quick_role', label: 'Remove Dev', title: 'Remove Dev' },
+  'remove-rainbow': { capability: 'badges', action: 'quick_role', label: 'Remove Rainbow', title: 'Remove Rainbow' },
 } as const
 
 type ActionKey = keyof typeof actionDefinitions
 type AdminAction = typeof actionDefinitions[ActionKey]['action']
-
 const discordInteractionSchema = z.object({
   type: z.number().int(),
   application_id: z.string().regex(/^\d{17,20}$/),
@@ -73,12 +79,23 @@ function panelResponse(roleIds: string[]) {
   const capabilities = allowedCapabilities(roleIds)
   if (!capabilities.length) return ephemeralMessage('You do not have permission to use Disloop admin tools.')
 
-  const buttons: Record<string, unknown>[] = []
-  for (const key of Object.keys(actionDefinitions) as ActionKey[]) {
-    const definition = actionDefinitions[key]
-    if (!capabilities.includes(definition.capability)) continue
-    buttons.push({ type: 2, style: 1, custom_id: `disloop:open:${key}`, label: definition.label })
-  }
+  const rows: ActionKey[][] = [
+    ['badge-grant', 'badge-revoke', 'user-ban', 'user-unban'],
+    ['name-style-set', 'name-style-remove'],
+    ['give-owner', 'give-partner', 'give-dev', 'give-rainbow'],
+    ['remove-owner', 'remove-partner', 'remove-dev', 'remove-rainbow'],
+  ]
+  const components = rows.map((row) => ({
+    type: 1,
+    components: row
+      .filter((key) => capabilities.includes(actionDefinitions[key].capability))
+      .map((key) => ({
+        type: 2,
+        style: 1,
+        custom_id: `disloop:open:${key}`,
+        label: actionDefinitions[key].label,
+      })),
+  })).filter((row) => row.components.length > 0)
 
   const badgeList = BADGES.map((badge) => `\`${badge.id}\``).join(', ')
   const content = [
@@ -86,6 +103,7 @@ function panelResponse(roleIds: string[]) {
     'Choose an action below, then fill in its form. Enter website usernames, @usernames, Discord IDs, or Discord mentions. Separate users with commas or new lines (up to 50).',
     ...(capabilities.includes('badges') ? [`Badge IDs (comma/newline separated): ${badgeList}`, 'Example: enter `member.one` for one user, or `member.one, member.two` for a bulk action; enter `verified, creator` to apply two badges.'] : []),
     ...(capabilities.includes('badges') ? ['Name styles: `rainbow`, `gold`, or `none`. Custom titles are optional and limited to 24 plain-text characters.'] : []),
+    ...(capabilities.includes('badges') ? ['Quick roles: Give applies the title and rainbow style; Partner and Dev also apply their existing badges. Remove clears that title and removes its badge when applicable. Rainbow changes only the name style.'] : []),
     'Ban actions apply to the Disloop website only; they do not ban a member from this Discord server.',
   ].join('\n')
 
@@ -95,7 +113,7 @@ function panelResponse(roleIds: string[]) {
       content,
       flags: EPHEMERAL_FLAG,
       allowed_mentions: { parse: [] },
-      components: [{ type: 1, components: buttons }],
+      components,
     },
   })
 }
@@ -143,6 +161,8 @@ function actionModal(key: ActionKey) {
         required: false,
       }],
     })
+  } else if (definition.action === 'quick_role') {
+    components.length = 1
   } else if (definition.capability === 'badges' && key !== 'name-style-remove') {
     components.push({
       type: 1,
@@ -192,14 +212,45 @@ function modalFields(components: unknown[]) {
   return fields
 }
 
-function resultMessage(result: { updated: number; skipped: string[]; auditLogFailed?: boolean }, key: ActionKey) {
-  const lines = [`${actionDefinitions[key].label} completed for ${result.updated} user(s).`]
+function resultMessage(result: {
+  updated?: number
+  skipped: string[]
+  auditLogFailed?: boolean
+  updatedUsers?: string[]
+  roleFailures?: string[]
+}, key: ActionKey) {
+  if (actionDefinitions[key].action === 'quick_role') {
+    const roleName = key.includes('owner') ? 'Owner'
+      : key.includes('partner') ? 'Partner'
+      : key.includes('-dev') ? 'Dev'
+      : 'Rainbow'
+    const verb = key.startsWith('give-') ? 'given to' : 'removed from'
+    const lines = [`${roleName} ${verb}: ${result.updatedUsers?.join(', ') || 'no registered users'}`]
+    if (result.auditLogFailed) lines.push('The action was saved, but its Discord audit embed could not be delivered.')
+    if (result.roleFailures?.length) {
+      lines.push(`Discord role not changed for: ${result.roleFailures.slice(0, 10).join(', ')}`)
+      if (result.roleFailures.length > 10) lines.push(`And ${result.roleFailures.length - 10} more Discord role failures.`)
+    }
+    const notRegistered = result.skipped.filter((item) => item.includes('(not found)') || item.includes('(ambiguous)'))
+    const invalid = result.skipped.filter((item) => !notRegistered.includes(item))
+    if (notRegistered.length) lines.push(`Not registered on Disloop: ${notRegistered.map((item) => item.replace(/ \(not found\)| \(ambiguous\)/, '')).join(', ')}`)
+    if (invalid.length) lines.push(`Invalid: ${invalid.join(', ')}`)
+    return lines.join('\n').slice(0, 1900)
+  }
+
+  const lines = [`${actionDefinitions[key].label} completed for ${result.updated ?? 0} user(s).`]
   if (result.auditLogFailed) lines.push('The action was saved, but its Discord audit embed could not be delivered.')
   if (result.skipped.length) {
     lines.push(`Skipped ${result.skipped.length}: ${result.skipped.slice(0, 18).join(', ')}`)
     if (result.skipped.length > 18) lines.push(`And ${result.skipped.length - 18} more.`)
   }
   return lines.join('\n').slice(0, 1900)
+}
+
+function getActionKey(customId: string | undefined, action: 'open' | 'submit'): ActionKey | null {
+  const match = customId?.match(new RegExp(`^disloop:${action}:(.+)$`))
+  const key = match?.[1]
+  return key && Object.hasOwn(actionDefinitions, key) ? key as ActionKey : null
 }
 
 async function updateOriginalResponse(interaction: DiscordInteraction, content: string) {
@@ -252,6 +303,7 @@ function validateGuildAndActor(interaction: DiscordInteraction): GuildActorConte
 }
 
 export async function POST(request: Request) {
+  const startedAt = Date.now()
   const publicKey = process.env.DISCORD_PUBLIC_KEY
   if (!publicKey) return new Response('Discord interaction verification is not configured.', { status: 503 })
 
@@ -260,12 +312,15 @@ export async function POST(request: Request) {
   const body = await request.text()
   if (body.length > 100_000) return new Response('Request too large.', { status: 413 })
 
-  if (!verifyDiscordInteractionSignature(
-    body,
-    request.headers.get('x-signature-ed25519'),
-    request.headers.get('x-signature-timestamp'),
-    publicKey,
-  )) return new Response('Invalid Discord signature.', { status: 401 })
+  const signature = request.headers.get('x-signature-ed25519')
+  const timestamp = request.headers.get('x-signature-timestamp')
+  const signatureFailure = getDiscordInteractionSignatureFailure(signature, timestamp, publicKey)
+  if (signatureFailure || !verifyDiscordInteractionSignature(body, signature, timestamp, publicKey)) {
+    console.warn('[discord-interactions] Rejected an interaction during signature verification.', {
+      reason: signatureFailure ?? 'signature_mismatch',
+    })
+    return new Response('Invalid Discord signature.', { status: 401 })
+  }
 
   let json: unknown
   try {
@@ -292,15 +347,16 @@ export async function POST(request: Request) {
   if (interaction.type === 2 && interaction.data?.name === 'disloop-admin') {
     const context = validateGuildAndActor(interaction)
     if ('error' in context) return ephemeralMessage(context.error ?? 'Could not verify this Discord interaction.')
-    return panelResponse(context.roleIds)
+    const response = panelResponse(context.roleIds)
+    console.info('[discord-interactions] Admin panel acknowledged.', { durationMs: Date.now() - startedAt })
+    return response
   }
 
   if (interaction.type === 3) {
     const context = validateGuildAndActor(interaction)
     if ('error' in context) return ephemeralMessage(context.error ?? 'Could not verify this Discord interaction.')
-    const key = interaction.data?.custom_id?.match(/^disloop:open:(badge-grant|badge-revoke|name-style-set|name-style-remove|user-ban|user-unban)$/)?.[1] as ActionKey | undefined
+    const key = getActionKey(interaction.data?.custom_id, 'open')
     if (!key) return ephemeralMessage('That admin-panel action is no longer available. Run `/disloop-admin` again.')
-    const definition = actionDefinitions[key]
     if (!canUseDiscordNameStyleActions(context.roleIds)) return ephemeralMessage('Your Discord roles do not allow that action.')
     return actionModal(key)
   }
@@ -308,7 +364,7 @@ export async function POST(request: Request) {
   if (interaction.type === 5) {
     const context = validateGuildAndActor(interaction)
     if ('error' in context) return ephemeralMessage(context.error ?? 'Could not verify this Discord interaction.')
-    const key = interaction.data?.custom_id?.match(/^disloop:submit:(badge-grant|badge-revoke|name-style-set|name-style-remove|user-ban|user-unban)$/)?.[1] as ActionKey | undefined
+    const key = getActionKey(interaction.data?.custom_id, 'submit')
     if (!key) return ephemeralMessage('That admin-panel form has expired. Run `/disloop-admin` again.')
     const definition = actionDefinitions[key]
     if (!canUseDiscordNameStyleActions(context.roleIds)) return ephemeralMessage('Your Discord roles do not allow that action.')
@@ -318,15 +374,28 @@ export async function POST(request: Request) {
     after(async () => {
       let content: string
       try {
-        const result = definition.action === 'name_style_set' || definition.action === 'name_style_remove'
+        const {
+          applyDiscordAdminAction,
+          applyDiscordNameStyle,
+          applyDiscordQuickRoleAction,
+          getDiscordAdminErrorDiagnostics,
+          getDiscordAdminErrorResponse,
+        } = await import('@/lib/discord-admin')
+        const result = definition.action === 'quick_role'
+          ? await applyDiscordQuickRoleAction(key as keyof typeof import('@/lib/discord-admin').DISCORD_QUICK_ROLE_ACTIONS, fields, context.actor)
+          : definition.action === 'name_style_set' || definition.action === 'name_style_remove'
           ? await applyDiscordNameStyle(definition.action, fields, context.actor)
           : await applyDiscordAdminAction(definition.action, fields, context.actor)
-        content = resultMessage(result, key)
+        const updatedUsers = 'updatedUsers' in result ? result.updatedUsers : undefined
+        const roleFailures = 'roleFailures' in result ? result.roleFailures : undefined
+        content = resultMessage({ ...result, updatedUsers, roleFailures }, key)
       } catch (error) {
         if (error instanceof Error && error.name === 'DiscordAdminInputError') content = error.message
         else {
-          console.error('[discord-admin] Action failed; the database transaction was rolled back.', error instanceof Error ? error.message : 'Unknown error')
-          content = 'The action could not be completed. No changes were saved; please verify the input and try again.'
+          const { getDiscordAdminErrorDiagnostics, getDiscordAdminErrorResponse } = await import('@/lib/discord-admin')
+          const diagnostics = getDiscordAdminErrorDiagnostics(error)
+          console.error('[discord-admin] Action failed.', diagnostics)
+          content = getDiscordAdminErrorResponse(error)
         }
       }
 
