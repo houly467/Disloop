@@ -616,7 +616,7 @@ export function NewsApp({
           )}
 
           <BackButton locale={locale} onBack={goBack} />
-          <div className="feed-layout">
+          <div className={`feed-layout ${activeSection === 'reels' ? 'feed-layout-reels' : ''}`}>
             {activeSection === 'news' ? (
             <section className="feed-column" aria-labelledby="feed-title">
               <div className="feed-heading">

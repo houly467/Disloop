@@ -914,6 +914,27 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .reel-like-button span { margin-inline-start: 2px; }
 .reel-like-active { border-color: #684540; color: #dc9185; }
 .reel-like-active svg { fill: currentColor; }
+.feed-layout-reels { display: block; width: 100%; height: calc(100dvh - 116px); max-width: none; margin: 0; padding: 14px 28px 16px; }
+.feed-layout-reels > .feed-column { height: 100%; min-height: 0; }
+.feed-layout-reels .right-rail { display: none; }
+.reels-section { display: flex; height: 100%; min-height: 0; flex-direction: column; padding: 0; }
+.reels-heading { flex: 0 0 auto; margin: 0 0 8px; }
+.reels-heading h1 { margin: 3px 0; font-size: 22px; }
+.reels-heading p { margin: 0; font-size: 10px; }
+.reel-creation-bar { display: flex; min-height: 42px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; padding: 4px 8px 4px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text-secondary); font-size: 10px; }
+.reel-compose-trigger { min-height: 32px; flex: 0 0 auto; gap: 6px; margin: 0; padding: 0 10px; font-size: 9px; }
+.reel-feed { min-height: 0; flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; border-radius: 13px; background: #070808; scrollbar-width: none; scroll-snap-type: y mandatory; scroll-padding-block: 0; }
+.reel-feed::-webkit-scrollbar { display: none; }
+.reel-list { display: flex; width: 100%; height: 100%; min-height: 100%; flex-direction: column; gap: 0; }
+.reel-slide { position: relative; display: flex; width: 100%; height: 100%; min-height: 100%; flex: 0 0 100%; align-items: center; justify-content: center; overflow: hidden; scroll-snap-align: start; scroll-snap-stop: always; border: 0; border-radius: 0; background: #070808; }
+.reel-slide .reel-video { width: 100%; height: 100%; max-height: 100%; aspect-ratio: auto; object-fit: contain; }
+.reel-slide .reel-card-content { position: absolute; z-index: 1; inset-inline: 0; bottom: 0; display: flex; gap: 7px; padding: 52px 86px 18px 16px; background: linear-gradient(0deg, rgb(0 0 0 / 78%), rgb(0 0 0 / 42%) 64%, transparent); color: #fff; pointer-events: none; }
+.reel-slide .reel-card-content > * { pointer-events: auto; }
+.reel-slide .reel-author > a { color: #fff; }
+.reel-slide .reel-author small, .reel-slide .reel-card-content > p { color: rgb(255 255 255 / 90%); }
+.reel-slide .reel-card-content > p { max-width: min(100%, 560px); font-size: 12px; line-height: 1.5; }
+.reel-slide .reel-card-content .tag-row { margin-top: 0; }
+.reels-empty { min-height: 0; flex: 1 1 auto; }
 .search-status { color: var(--text-muted); font-size: 10px; }
 .search-post .post-tag { display: inline-block; margin: 9px 6px 0 0; }
 .moderation-list { display: flex; flex-direction: column; gap: 9px; }
@@ -1317,6 +1338,15 @@ button, a { -webkit-tap-highlight-color: transparent; }
 @media (max-width: 767px) {
   .reaction-sheet, .relationship-modal { max-height: 80dvh; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
   .reel-share-sheet { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .feed-layout-reels { width: 100%; height: calc(100dvh - 54px - 51px - 34px - 12px - 59px - env(safe-area-inset-bottom)); min-height: 320px; max-width: none; padding: 8px 10px 6px; overflow: hidden; }
+  .feed-layout-reels > .feed-column { height: 100%; }
+  .reels-heading { margin-bottom: 6px; }
+  .reels-heading h1 { font-size: 20px; }
+  .reels-heading p { display: none; }
+  .reel-creation-bar { min-height: 40px; margin-bottom: 7px; padding-inline-start: 9px; font-size: 9px; }
+  .reel-compose-trigger { min-height: 30px; padding-inline: 8px; font-size: 8px; }
+  .reel-slide .reel-card-content { padding: 48px 78px max(16px, env(safe-area-inset-bottom)) 12px; }
+  .reel-slide .reel-card-content > p { font-size: 11px; }
   .badge-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .reaction-sheet-backdrop, .relationship-modal-backdrop { align-items: flex-end; }
   .reaction-people-list li { align-items: center; }

@@ -553,11 +553,14 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
   }
 
   return (
-    <section className="section-view" aria-labelledby="reels-title">
-      <div className="section-heading"><span className="section-kicker"><Video aria-hidden="true" />{labels.title}</span><h1 id="reels-title">{labels.title}</h1><p>{labels.description}</p></div>
-      {viewer
-        ? <button className="section-primary-button reel-compose-trigger" type="button" onClick={() => void openComposer()}>{labels.publish}<Plus aria-hidden="true" /></button>
-        : <button className="reel-sign-in" type="button" onClick={onSignIn}>{labels.signIn}<ArrowUpRight aria-hidden="true" /></button>}
+    <section className="section-view reels-section" aria-labelledby="reels-title">
+      <div className="section-heading reels-heading"><div><span className="section-kicker"><Video aria-hidden="true" />{labels.title}</span><h1 id="reels-title">{labels.title}</h1><p>{labels.description}</p></div></div>
+      <div className="reel-creation-bar" aria-label={labels.publish}>
+        <span>{locale === 'ar' ? 'شارك مقطعًا مع المجتمع' : 'Create and share a video with the community'}</span>
+        {viewer
+          ? <button className="section-primary-button reel-compose-trigger" type="button" onClick={() => void openComposer()}><Plus aria-hidden="true" />{labels.publish}</button>
+          : <button className="section-primary-button reel-compose-trigger" type="button" onClick={onSignIn}>{labels.signIn}<ArrowUpRight aria-hidden="true" /></button>}
+      </div>
       {composerOpen && <ModalPortal backdropClassName="social-composer-modal-backdrop" dialogClassName="social-composer-modal reel-composer-modal" labelId="reel-composer-title" onClose={() => { if (!publishing) setComposerOpen(false) }}>
         <div className="social-composer-modal-heading"><h2 id="reel-composer-title">{labels.publish}</h2><button className="icon-button" type="button" disabled={publishing} onClick={() => setComposerOpen(false)} aria-label={locale === 'ar' ? 'إغلاق' : 'Close'}><X aria-hidden="true" /></button></div>
         <form className="reel-composer" onSubmit={publishReel}>
@@ -568,14 +571,14 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
           {error && <div className="form-error" role="alert"><p>{error}</p><button type="button" className="section-secondary-button" disabled={publishing} onClick={() => document.querySelector<HTMLFormElement>('.reel-composer')?.requestSubmit()}>{labels.retry}</button></div>}
         </form>
       </ModalPortal>}
-      {visibleReels.length ? <div className="reel-list">{visibleReels.map((reel) => <article className="reel-card" id={`reel-${reel.id}`} key={reel.id}>
+      {visibleReels.length ? <div className="reel-feed" role="region" aria-label={labels.title} tabIndex={0}><div className="reel-list">{visibleReels.map((reel) => <article className="reel-card reel-slide" id={`reel-${reel.id}`} key={reel.id}>
         <video className="reel-video" controls playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.title} />
         <div className="reel-card-content"><div className="reel-author"><span>{reel.authorAvatar ? <img src={reel.authorAvatar} alt="" /> : <UserRound aria-hidden="true" />}</span><a href={`/u/${encodeURIComponent(reel.authorUsername)}`}><UserName userId={reel.authorId} name={reel.authorName} username={reel.authorUsername} createdAt={reel.authorCreatedAt} nameStyle={reel.authorNameStyle} customTitle={reel.authorCustomTitle} locale={locale} /></a></div>
           {reel.caption && <p><RichText text={reel.caption} /></p>}
           {reel.tags.length > 0 && <div className="tag-row">{reel.tags.map((tag) => <a className="post-tag" key={tag} href={`/tags/${encodeURIComponent(tag)}?lang=${locale}`}>#{tag}</a>)}</div>}
-          <PostEngagement type="reel" contentId={reel.id} authorId={reel.authorId} viewer={viewer} locale={locale} onSignIn={onSignIn} variant="reel" onLikeChange={(liked) => setLikedReelIds((current) => { const next = new Set(current); if (liked) next.add(reel.id); else next.delete(reel.id); return next })} />
         </div>
-      </article>)}</div> : <div className="section-empty reels-empty"><span className="section-empty-icon"><Video aria-hidden="true" /></span><h2>{labels.empty}</h2><p>{labels.emptyBody}</p></div>}
+        <PostEngagement type="reel" contentId={reel.id} authorId={reel.authorId} viewer={viewer} locale={locale} onSignIn={onSignIn} variant="reel" onLikeChange={(liked) => setLikedReelIds((current) => { const next = new Set(current); if (liked) next.add(reel.id); else next.delete(reel.id); return next })} />
+      </article>)}</div></div> : <div className="section-empty reels-empty"><span className="section-empty-icon"><Video aria-hidden="true" /></span><h2>{labels.empty}</h2><p>{labels.emptyBody}</p></div>}
     </section>
   )
 }
