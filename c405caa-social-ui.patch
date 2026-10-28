@@ -1,0 +1,859 @@
+diff --git a/app/api/daily/route.ts b/app/api/daily/route.ts
+index 8c03d4a..0c8f3ff 100644
+--- a/app/api/daily/route.ts
++++ b/app/api/daily/route.ts
+@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
+         authorId: disloopStories.authorId,
+         body: disloopStories.body,
+         mediaUrl: disloopStories.mediaUrl,
++        mediaType: disloopStories.mediaType,
+         createdAt: disloopStories.createdAt,
+         expiresAt: disloopStories.expiresAt,
+         authorName: disloopUsers.displayName,
+diff --git a/app/api/profile/route.ts b/app/api/profile/route.ts
+index 54cfaff..a4bde46 100644
+--- a/app/api/profile/route.ts
++++ b/app/api/profile/route.ts
+@@ -72,6 +72,7 @@ export async function PATCH(request: NextRequest) {
+     socialLinks: z.record(z.string(), z.string().max(240)),
+     publicVisitCount: z.boolean(),
+     hideLikes: z.boolean(),
++    hideReposts: z.boolean().optional(),
+   }).strict())
+   if (!data) return NextResponse.json({ error: 'invalid_profile' }, { status: 400 })
+   const username = data.username
+@@ -85,6 +86,7 @@ export async function PATCH(request: NextRequest) {
+   const socialLinks = parseSocialLinks(data.socialLinks)
+   const publicVisitCount = data.publicVisitCount
+   const hideLikes = data.hideLikes
++  const hideReposts = data.hideReposts ?? user.hideReposts
+ 
+   if (!usernameLower || !socialLinks || findMentionUsernames(bio).length > 5
+     || (dateOfBirth !== undefined && !isValidDateOfBirth(dateOfBirth))
+@@ -118,6 +120,7 @@ export async function PATCH(request: NextRequest) {
+       socialLinks,
+       publicVisitCount,
+       hideLikes,
++      hideReposts,
+       ...(dateOfBirth !== undefined ? { dateOfBirth } : {}),
+       ...(profileAvatarUrl !== undefined ? { profileAvatarUrl } : {}),
+       ...(profileBannerUrl !== undefined ? { profileBannerUrl } : {}),
+@@ -134,6 +137,7 @@ export async function PATCH(request: NextRequest) {
+       socialLinks: disloopUsers.socialLinks,
+       publicVisitCount: disloopUsers.publicVisitCount,
+       hideLikes: disloopUsers.hideLikes,
++      hideReposts: disloopUsers.hideReposts,
+     })
+     await notifyMentions(bio, user.id, 'profile', user.id).catch(() => undefined)
+     return NextResponse.json({ profile: updated })
+diff --git a/app/api/reels/route.ts b/app/api/reels/route.ts
+index 18af48e..a3f6a41 100644
+--- a/app/api/reels/route.ts
++++ b/app/api/reels/route.ts
+@@ -6,19 +6,35 @@ import { publishDiscordEmbed } from '@/lib/discord-community'
+ import { awardXp } from '@/lib/gamification'
+ import { db } from '@/lib/db'
+ import { disloopReels, disloopUsers } from '@/lib/db/schema'
+-import { getCurrentUser } from '@/lib/session'
+ import { isSameOriginRequest } from '@/lib/security'
+-import { extractTags } from '@/lib/tags'
++import { countWords, extractTags } from '@/lib/tags'
+ import { rateLimitResponse } from '@/lib/rate-limit'
+ import { parseJsonBody } from '@/lib/validation'
+ import { z } from 'zod'
+ import { findMentionUsernames, notifyMentions } from '@/lib/social'
+ import { isPrivateMediaUrlForUser, isPublicBlobUrlForUser } from '@/lib/private-media'
++import { getReels } from '@/lib/reels'
++import { getCurrentUser } from '@/lib/session'
++import { isUuid } from '@/lib/dm'
+ 
+ function isAllowedReelUrl(value: string, userId: string) {
+   return isPrivateMediaUrlForUser(value, 'reels', userId) || isPublicBlobUrlForUser(value, 'reels', userId)
+ }
+ 
++export async function GET(request: NextRequest) {
++  const viewer = await getCurrentUser()
++  const likedOnly = request.nextUrl.searchParams.get('liked') === 'true'
++  const userId = request.nextUrl.searchParams.get('userId')
++  if (userId && !isUuid(userId)) return NextResponse.json({ error: 'invalid_user' }, { status: 400 })
++  if (likedOnly && !viewer) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
++  try {
++    const reels = await getReels(viewer?.id, undefined, userId ?? undefined, { likedOnly, excludeLiked: !likedOnly })
++    return NextResponse.json({ reels }, { headers: { 'Cache-Control': 'private, no-store' } })
++  } catch (error) {
++    return NextResponse.json(apiFailurePayload('reels_unavailable', error, 'GET /api/reels'), { status: 500 })
++  }
++}
++
+ export async function POST(request: NextRequest) {
+   const access = await requireLoggedInServerMember(request, { requireDiscordMembership: true })
+   if (!access.ok) return access.response
+@@ -33,7 +49,7 @@ export async function POST(request: NextRequest) {
+   if (!data) return NextResponse.json({ error: 'invalid_reel' }, { status: 400 })
+   const videoUrl = data.videoUrl
+   const caption = data.caption ?? ''
+-  if (!isAllowedReelUrl(videoUrl, user.id) || findMentionUsernames(caption).length > 5) return NextResponse.json({ error: 'invalid_reel' }, { status: 400 })
++  if (!isAllowedReelUrl(videoUrl, user.id) || findMentionUsernames(caption).length > 5 || countWords(caption) > 100) return NextResponse.json({ error: 'invalid_reel' }, { status: 400 })
+ 
+   let tags: string[]
+   try {
+diff --git a/app/api/social/reposts/route.ts b/app/api/social/reposts/route.ts
+index d25de43..82484ca 100644
+--- a/app/api/social/reposts/route.ts
++++ b/app/api/social/reposts/route.ts
+@@ -32,6 +32,13 @@ export async function GET(request: NextRequest) {
+       return NextResponse.json({ count, repostedByMe: existing.length > 0 }, { headers: { 'Cache-Control': 'private, no-store' } })
+     }
+     if (!userId || !isUuid(userId)) return NextResponse.json({ error: 'invalid_profile' }, { status: 400 })
++    const viewer = await getCurrentUser()
++    const [profileOwner] = await db.select({ hideReposts: disloopUsers.hideReposts })
++      .from(disloopUsers).where(eq(disloopUsers.id, userId)).limit(1)
++    if (!profileOwner) return NextResponse.json({ error: 'profile_not_found' }, { status: 404 })
++    if (profileOwner.hideReposts && viewer?.id !== userId) {
++      return NextResponse.json({ reposts: [] }, { headers: { 'Cache-Control': 'private, no-store' } })
++    }
+     const news = await db.select({
+       id: disloopNewsPosts.id,
+       repostedAt: disloopReposts.createdAt,
+diff --git a/app/api/stories/route.ts b/app/api/stories/route.ts
+index d870f6d..aa10185 100644
+--- a/app/api/stories/route.ts
++++ b/app/api/stories/route.ts
+@@ -23,6 +23,7 @@ export async function GET() {
+       authorId: disloopStories.authorId,
+       body: disloopStories.body,
+       mediaUrl: disloopStories.mediaUrl,
++      mediaType: disloopStories.mediaType,
+       createdAt: disloopStories.createdAt,
+       expiresAt: disloopStories.expiresAt,
+       authorName: disloopUsers.displayName,
+@@ -58,13 +59,14 @@ export async function POST(request: NextRequest) {
+   if (!data) return NextResponse.json({ error: 'invalid_story' }, { status: 400 })
+   const body = (data.body ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e\u001f]/g, '').trim()
+   const mediaUrl = data.mediaUrl ?? null
++  const mediaType = mediaUrl && /\.(mp4|webm)(?:$|[?#])/i.test(mediaUrl) ? 'video' : mediaUrl ? 'image' : null
+   if (body.length > 500 || (!body && !mediaUrl) || (mediaUrl && !isAllowedStoryMediaUrl(mediaUrl, user.id))) {
+     return NextResponse.json({ error: 'invalid_story' }, { status: 400 })
+   }
+ 
+   try {
+-    const [story] = await db.insert(disloopStories).values({ authorId: user.id, body, mediaUrl })
+-      .returning({ id: disloopStories.id, authorId: disloopStories.authorId, body: disloopStories.body, mediaUrl: disloopStories.mediaUrl, createdAt: disloopStories.createdAt, expiresAt: disloopStories.expiresAt })
++    const [story] = await db.insert(disloopStories).values({ authorId: user.id, body, mediaUrl, mediaType })
++      .returning({ id: disloopStories.id, authorId: disloopStories.authorId, body: disloopStories.body, mediaUrl: disloopStories.mediaUrl, mediaType: disloopStories.mediaType, createdAt: disloopStories.createdAt, expiresAt: disloopStories.expiresAt })
+     const xp = await awardXp(user.id, 2, 'story_published', `story:${story.id}`).catch(() => null)
+     return NextResponse.json({ story: { ...story, createdAt: story.createdAt.toISOString(), expiresAt: story.expiresAt.toISOString(), authorName: user.displayName, authorUsername: user.username, authorAvatar: user.avatarUrl }, xp }, { status: 201 })
+   } catch (error) {
+diff --git a/app/globals.css b/app/globals.css
+index 1cfe239..47a98cd 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -744,6 +744,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
+ .dm-mutual { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-strong); }
+ .dm-mutual svg { width: 13px; height: 13px; }
+ .dm-workspace { display: grid; min-height: 440px; grid-template-columns: minmax(205px, .78fr) minmax(0, 1.55fr); overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
++.dm-view { min-height: calc(100dvh - 100px); }
++.dm-workspace { min-height: min(760px, calc(100dvh - 180px)); }
+ .dm-conversation-list { min-width: 0; padding: 13px; border-inline-end: 1px solid var(--line); }
+ .dm-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; padding: 0 2px 9px; border-bottom: 1px solid var(--line-soft); }
+ .dm-list-heading h2 { margin: 0; font-size: 11px; font-weight: 600; }
+@@ -791,7 +793,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
+   .dm-conversation-list { min-height: 170px; border-inline-end: 0; }
+   .dm-list-hidden-mobile { display: none; }
+   .dm-chat-panel { min-height: 380px; }
+-  .dm-chat-panel-active { min-height: min(66dvh, 620px); }
++  .dm-chat-panel-active { min-height: calc(100dvh - 90px); }
+   .dm-chat-header .dm-back-button { display: inline-flex; width: 30px; height: 30px; flex: 0 0 30px; margin-inline-start: -5px; }
+   .dm-transcript { min-height: 245px; max-height: none; }
+   .dm-person { align-items: flex-start; }
+@@ -894,6 +896,16 @@ button, a { -webkit-tap-highlight-color: transparent; }
+ .reel-author strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+ .reel-author small { color: var(--text-muted); font-size: 8px; }
+ .reel-card-content > p { margin: 0; color: var(--text-secondary); font-size: 10px; line-height: 1.6; white-space: pre-wrap; }
++.profile-reel-player { display: block; width: min(100%, 420px); max-height: 70vh; margin-block: 10px; aspect-ratio: 9 / 16; border-radius: 10px; background: #080a09; object-fit: contain; }
++.news-title-link { color: inherit; text-decoration: none; }
++.news-title-link:hover { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 3px; }
++.reel-share-search { display: flex; flex-direction: column; gap: 6px; margin-block: 12px; color: var(--text-secondary); font-size: 10px; }
++.reel-share-search input { min-height: 38px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--page); color: var(--text); font: inherit; }
++.reel-share-people { display: flex; max-height: 45vh; flex-direction: column; gap: 6px; overflow-y: auto; }
++.reel-share-people button { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--surface); color: var(--text); text-align: start; }
++.reel-share-people button:disabled { opacity: .65; }
++.reel-share-people small { color: var(--text-muted); font-size: 9px; }
++.reel-more-menu { display: flex; padding: 3px; border-radius: 8px; background: rgb(0 0 0 / 65%); }
+ .reel-card-content .tag-row { margin-top: -2px; }
+ .reel-like-button { display: inline-flex; min-height: 31px; align-self: flex-start; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 9px; }
+ .reel-like-button svg { width: 14px; }
+@@ -1039,6 +1051,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
+ .story-viewer-header > div > img { width: 28px; height: 28px; }
+ .story-viewer-header small { color: var(--text-muted); }
+ .story-viewer-media, .daily-post-media { display: block; width: 100%; max-height: 380px; border-radius: 8px; object-fit: contain; }
++.story-viewer-media { background: #080a09; }
+ .story-viewer p, .daily-post-body { margin: 0; color: var(--text-secondary); font-size: 10px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+ .story-viewer > small { color: var(--text-muted); font-size: 8px; }
+ .daily-post-author { justify-content: flex-start; }
+@@ -1102,6 +1115,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
+ .post-engagement-action span { color: inherit; }
+ .post-engagement-action-active { color: var(--accent-strong); }
+ .social-comments { display: flex; flex-direction: column; gap: 10px; padding-top: 9px; }
++.post-engagement-reel .social-comments { position: fixed; z-index: 110; inset-inline: 0; bottom: 0; max-height: min(76dvh, 680px); overflow-y: auto; padding: 18px max(16px, calc((100vw - 600px) / 2)) max(18px, env(safe-area-inset-bottom)); border: 1px solid var(--line); border-bottom: 0; border-radius: 18px 18px 0 0; background: var(--surface); box-shadow: 0 -12px 40px rgb(0 0 0 / 24%); }
+ .social-comment-thread { display: flex; flex-direction: column; gap: 8px; }
+ .social-comment, .social-comment-reply { display: flex; align-items: flex-start; gap: 8px; }
+ .social-comment-avatar { display: grid; width: 25px; height: 25px; flex: 0 0 25px; place-items: center; overflow: hidden; border-radius: 50%; background: var(--surface-hover); color: var(--text-secondary); font-size: 9px; }
+diff --git a/app/page.tsx b/app/page.tsx
+index 9f489d1..640b030 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -33,6 +33,7 @@ export default async function HomePage({ searchParams }: PageProps) {
+       initialModerator={initialModerator}
+       initialProfileFlair={initialProfileFlair}
+       initialComposerOpen={params.compose === 'news'}
++      initialMessageTo={typeof params.messageTo === 'string' ? params.messageTo : null}
+       inviteUrl={process.env.DISCORD_INVITE_URL ?? null}
+       authNotice={typeof params.auth === 'string' ? params.auth : null}
+     />
+diff --git a/components/community-sections.tsx b/components/community-sections.tsx
+index 2c02502..481e0a7 100644
+--- a/components/community-sections.tsx
++++ b/components/community-sections.tsx
+@@ -5,7 +5,7 @@ import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState
+ import { createPortal } from 'react-dom'
+ import {   ArrowUpRight,
+   BadgeCheck,
+-  Ban, Eye, Check, Flag, Link2, MapPin, MoreHorizontal, Pencil, Plus, Repeat2, Search, ShieldAlert, Upload, UserRound, Video, X } from 'lucide-react'
++  Ban, Eye, Check, Flag, Heart, Link2, MapPin, MessageCircle, MoreHorizontal, Pencil, Plus, Repeat2, Search, ShieldAlert, Upload, UserRound, Video, X } from 'lucide-react'
+ import type { CommunityReel } from '@/lib/reels'
+ import type { NewsPost } from '@/lib/news'
+ import type { CurrentUser } from '@/lib/session'
+@@ -23,6 +23,7 @@ import { localizedUploadError } from '@/lib/client-errors'
+ import { compressImage } from '@/lib/image-compression'
+ import { UserName } from '@/components/user-name'
+ import { ReportDialog } from '@/components/report-dialog'
++import { countWords } from '@/lib/tags'
+ 
+ export type CommunityProfile = (CurrentUser & { nameStyle?: string | null; customTitle?: string | null }) | PublicProfile
+ 
+@@ -44,7 +45,7 @@ const profileCopy = {
+     posts: 'News', postsStat: 'Posts', reels: 'Reels', xp: 'XP', badges: 'Community badges', earned: 'Earned', next: 'Next milestone',
+     copy: 'Copy profile link', copied: 'Link copied', copyError: 'Could not copy the profile link.', saveError: 'Could not save your profile.', usernameTaken: 'Username is already taken.',
+     invalid: 'Use at least 3 characters for a regular username. 1–2 character handles require the Verified badge.', empty: 'No updates have been shared yet.', verified: 'Discord connected', privateVisits: 'Your profile visits', lastSevenDays: 'Last 7 days', noVisits: 'No visits yet',
+-    showVisits: 'Show profile visits publicly', showVisitsHint: 'Let visitors see the number of member visits.', profileVisits: 'Profile visits', views: 'visits', followers: 'followers', followingCount: 'following', hideLikes: 'Hide my likes from lists', hideLikesHint: 'Your likes will not appear in member lists.', follow: 'Follow', following: 'Following', followBack: 'Follow back', followError: 'Could not update follow status.'
++    showVisits: 'Show profile visits publicly', showVisitsHint: 'Let visitors see the number of member visits.', profileVisits: 'Profile visits', views: 'visits', followers: 'followers', followingCount: 'following', hideLikes: 'Hide my likes from lists', hideLikesHint: 'Your likes will not appear in member lists.', hideReposts: 'Hide my reposts', hideRepostsHint: 'Only you can see your reposts on your profile.', likesTab: 'Likes', message: 'Message', follow: 'Follow', following: 'Following', followBack: 'Follow back', followError: 'Could not update follow status.'
+   },
+   ar: {
+     about: 'نبذة عني', edit: 'تعديل الملف', save: 'حفظ التغييرات', cancel: 'إلغاء', saving: 'جارٍ الحفظ…', postsTab: 'المنشورات', repostsTab: 'إعادات النشر', repostedBy: 'أعاد النشر',
+@@ -53,7 +54,7 @@ const profileCopy = {
+     posts: 'الأخبار', postsStat: 'المنشورات', reels: 'ريلز', xp: 'نقاط الخبرة', badges: 'شارات المجتمع', earned: 'مكتسبة', next: 'الإنجاز التالي',
+     copy: 'نسخ رابط الملف', copied: 'تم نسخ الرابط', copyError: 'تعذر نسخ رابط الملف الشخصي.', saveError: 'تعذر حفظ الملف الشخصي.', usernameTaken: 'اسم المستخدم مستخدم بالفعل.',
+     invalid: 'يجب أن يتكون اسم المستخدم العادي من ٣ أحرف على الأقل. تتطلب الأسماء من حرف أو حرفين شارة التوثيق.', empty: 'لم تتم مشاركة أي تحديثات بعد.', verified: 'Discord متصل', privateVisits: 'زيارات ملفك', lastSevenDays: 'آخر ٧ أيام', noVisits: 'لا توجد زيارات بعد',
+-    showVisits: 'إظهار زيارات الملف', showVisitsHint: 'اسمح للزوار برؤية عدد زيارات الأعضاء.', profileVisits: 'زيارات الملف', views: 'زيارة', followers: 'متابع', followingCount: 'يتابع', hideLikes: 'إخفاء إعجاباتي من القوائم', hideLikesHint: 'لن تظهر إعجاباتك في قوائم الأعضاء.', follow: 'متابعة', following: 'تتابعه', followBack: 'متابعة متبادلة', followError: 'تعذر تحديث المتابعة.'
++    showVisits: 'إظهار زيارات الملف', showVisitsHint: 'اسمح للزوار برؤية عدد زيارات الأعضاء.', profileVisits: 'زيارات الملف', views: 'زيارة', followers: 'متابع', followingCount: 'يتابع', hideLikes: 'إخفاء إعجاباتي من القوائم', hideLikesHint: 'لن تظهر إعجاباتك في قوائم الأعضاء.', hideReposts: 'إخفاء إعادات النشر', hideRepostsHint: 'ستظهر إعادات النشر لك فقط في ملفك.', likesTab: 'الإعجابات', message: 'مراسلة', follow: 'متابعة', following: 'تتابعه', followBack: 'متابعة متبادلة', followError: 'تعذر تحديث المتابعة.'
+   },
+ } satisfies Record<Locale, Record<string, string>>
+ 
+@@ -122,9 +123,14 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
+   onSignIn?: () => void
+ }) {
+   const labels = profileCopy[locale]
+-  const [profileTab, setProfileTab] = useState<'posts' | 'reposts'>('posts')
++  const [profileTab, setProfileTab] = useState<'posts' | 'reposts' | 'likes'>('posts')
+   const [relationshipDirection, setRelationshipDirection] = useState<'followers' | 'following' | null>(null)
+   const { data: repostData } = useSWR<{ reposts: ProfileRepost[] }>(`/api/social/reposts?userId=${encodeURIComponent(profile.id)}`, fetchProfileReposts)
++  const { data: likedReelData } = useSWR<{ reels: CommunityReel[] }>(editable ? '/api/reels?liked=true' : null, async (url: string) => {
++    const response = await fetch(url, { cache: 'no-store' })
++    if (!response.ok) throw new Error('liked_reels_failed')
++    return response.json() as Promise<{ reels: CommunityReel[] }>
++  })
+   const followKey = !editable && viewer && viewer.id !== profile.id ? `/api/dm/follows/${encodeURIComponent(profile.id)}` : null
+   const { data: followData, mutate: mutateFollow } = useSWR<{ following: boolean; followsYou: boolean }>(followKey, fetchFollowStatus)
+   const countsUrl = `/api/social/follows?userId=${encodeURIComponent(profile.id)}&countsOnly=true`
+@@ -162,6 +168,7 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
+     socialLinks: { ...profile.socialLinks },
+     publicVisitCount: profile.publicVisitCount,
+     hideLikes: profile.hideLikes,
++    hideReposts: profile.hideReposts,
+   }))
+   const nextMilestone = [25, 50, 100, 250, 500].find((milestone) => profile.xp < milestone) ?? null
+   const previousMilestone = nextMilestone === null ? 500 : [0, 25, 50, 100, 250, 500].filter((milestone) => milestone < nextMilestone).at(-1) ?? 0
+@@ -359,9 +366,10 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
+       <div className="profile-overview">
+         {profile.avatarUrl ? <img className="profile-avatar" src={profile.avatarUrl} alt="" /> : <span className="profile-avatar profile-avatar-fallback"><UserRound aria-hidden="true" /></span>}
+         <div className="profile-identity"><span className="profile-verified"><BadgeCheck aria-hidden="true" />{labels.verified}</span><h1 id="profile-title"><UserName userId={profile.id} name={profile.displayName} username={profile.username} createdAt={profile.accountCreatedAt} nameStyle={profile.nameStyle} customTitle={profile.customTitle} locale={locale} /></h1></div>
+-        {editable && !editing && <button className="profile-copy-button" type="button" onClick={() => { setValues({ username: profile.username, displayName: profile.displayName, bio: profile.bio, location: profile.location ?? '', socialLinks: { ...profile.socialLinks }, publicVisitCount: profile.publicVisitCount, hideLikes: profile.hideLikes }); setAvatarFile(null); setBannerFile(null); setRemoveAvatar(false); setRemoveBanner(false); setError(''); setEditing(true) }}><Pencil aria-hidden="true" />{labels.edit}</button>}
++        {editable && !editing && <button className="profile-copy-button" type="button" onClick={() => { setValues({ username: profile.username, displayName: profile.displayName, bio: profile.bio, location: profile.location ?? '', socialLinks: { ...profile.socialLinks }, publicVisitCount: profile.publicVisitCount, hideLikes: profile.hideLikes, hideReposts: profile.hideReposts }); setAvatarFile(null); setBannerFile(null); setRemoveAvatar(false); setRemoveBanner(false); setError(''); setEditing(true) }}><Pencil aria-hidden="true" />{labels.edit}</button>}
+         {!editable && <div className="profile-action-group">
+           {followKey && followData && <button className="profile-copy-button" type="button" aria-pressed={followData.following} onClick={() => void toggleProfileFollow().catch(() => setError(labels.followError))}><UserRound aria-hidden="true" />{followData.following ? labels.following : followData.followsYou ? labels.followBack : labels.follow}</button>}
++          <button className="profile-copy-button" type="button" onClick={() => window.location.assign(`/?section=messages&messageTo=${encodeURIComponent(profile.username)}`)}><MessageCircle aria-hidden="true" />{labels.message}</button>
+           <button className="profile-copy-button" type="button" onClick={copyProfileLink}><Link2 aria-hidden="true" />{copied ? labels.copied : labels.copy}</button>
+           {viewer && <button ref={moderationButtonRef} className="profile-copy-button profile-more-button" type="button" aria-label={locale === 'ar' ? 'إجراءات الملف الشخصي' : 'Profile actions'} aria-haspopup="menu" aria-expanded={moderationMenuOpen} onClick={() => { setModerationMenuOpen((open) => !open); setModerationMessage('') }} onKeyDown={(event) => { if (event.key === 'ArrowDown') { event.preventDefault(); setModerationMenuOpen(true) } }}><MoreHorizontal aria-hidden="true" /></button>}
+           {moderationMessage && <p className="profile-moderation-status" role="status">{moderationMessage}</p>}
+@@ -398,6 +406,10 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
+             <input type="checkbox" checked={values.hideLikes} onChange={(event) => setValues({ ...values, hideLikes: event.target.checked })} />
+             <span><strong>{labels.hideLikes}</strong><small>{labels.hideLikesHint}</small></span>
+           </label>
++          <label className="profile-visit-setting">
++            <input type="checkbox" checked={values.hideReposts} onChange={(event) => setValues({ ...values, hideReposts: event.target.checked })} />
++            <span><strong>{labels.hideReposts}</strong><small>{labels.hideRepostsHint}</small></span>
++          </label>
+           <div className="profile-link-editor"><h2>{labels.linkedAccounts}</h2>{linkFields.map((field) => <label key={field}>{labels[field]}<input type="url" dir="ltr" placeholder="https://" value={values.socialLinks[field] ?? ''} onChange={(event) => setValues({ ...values, socialLinks: { ...values.socialLinks, [field]: event.target.value } })} /></label>)}</div>
+           {error && <div className="form-error" role="alert"><p>{error}</p><button type="button" className="section-secondary-button" disabled={saving} onClick={() => document.querySelector<HTMLFormElement>('.profile-edit-form')?.requestSubmit()}>{locale === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button></div>}
+           <div className="profile-edit-actions"><button type="button" className="section-secondary-button" onClick={() => { setEditing(false); setError('') }} disabled={saving}><X aria-hidden="true" />{labels.cancel}</button><button type="submit" className="section-primary-button" disabled={saving}>{saving ? labels.saving : labels.save}<Check aria-hidden="true" /></button></div>
+@@ -432,11 +444,12 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
+             <div className="profile-content-tabs" role="tablist" aria-label={locale === 'ar' ? 'محتوى الملف الشخصي' : 'Profile content'}>
+               <button type="button" role="tab" aria-selected={profileTab === 'posts'} className={profileTab === 'posts' ? 'profile-content-tab profile-content-tab-active' : 'profile-content-tab'} onClick={() => setProfileTab('posts')}>{labels.postsTab}<span>{posts.length + reels.length}</span></button>
+               <button type="button" role="tab" aria-selected={profileTab === 'reposts'} className={profileTab === 'reposts' ? 'profile-content-tab profile-content-tab-active' : 'profile-content-tab'} onClick={() => setProfileTab('reposts')}>{labels.repostsTab}<span>{repostData?.reposts.length ?? 0}</span></button>
++              {editable && <button type="button" role="tab" aria-selected={profileTab === 'likes'} className={profileTab === 'likes' ? 'profile-content-tab profile-content-tab-active' : 'profile-content-tab'} onClick={() => setProfileTab('likes')}>{labels.likesTab}<span>{likedReelData?.reels.length ?? 0}</span></button>}
+             </div>
+             {profileTab === 'posts' ? posts.length || reels.length ? <div className="news-list">
+               {posts.map((post) => <article className="search-post" key={post.id}><UserName userId={profile.id} name={profile.displayName} username={profile.username} createdAt={profile.accountCreatedAt} nameStyle={profile.nameStyle} customTitle={profile.customTitle} locale={locale} /><span className="category-pill">{post.category}</span><h3>{post.title}</h3><p><RichText text={post.body} /></p><PostEngagement type="news" contentId={post.id} authorId={profile.id} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(`/u/${profile.username}`)}`))} /></article>)}
+-              {reels.map((reel) => <article className="search-post" key={reel.id}><UserName userId={profile.id} name={profile.displayName} username={profile.username} createdAt={profile.accountCreatedAt} nameStyle={profile.nameStyle} customTitle={profile.customTitle} locale={locale} /><span className="category-pill">{labels.reels}</span><h3>{reel.caption ? <RichText text={reel.caption} /> : labels.reels}</h3><a className="profile-reel-link" href={reel.videoUrl} target="_blank" rel="noreferrer"><Video aria-hidden="true" />{reel.videoUrl}<ArrowUpRight aria-hidden="true" /></a><PostEngagement type="reel" contentId={reel.id} authorId={profile.id} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(`/u/${profile.username}`)}`))} /></article>)}
+-            </div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Video aria-hidden="true" /></span><h2>{labels.empty}</h2></div> : repostData?.reposts.length ? <div className="news-list">{repostData.reposts.map((repost) => <article className="search-post profile-repost-card" key={`${repost.type}-${repost.id}`}><span className="profile-repost-label"><Repeat2 aria-hidden="true" />{labels.repostedBy} @{profile.username}</span><span className="category-pill">{repost.type === 'reel' ? labels.reels : repost.type}</span><h3>{repost.type === 'reel' ? repost.caption || labels.reels : repost.type === 'news' ? repost.title : locale === 'ar' ? 'منشور يومي' : 'Daily post'}</h3>{repost.type !== 'reel' && repost.body && <p><RichText text={repost.body} /></p>}{repost.type === 'reel' && repost.videoUrl && <a className="profile-reel-link" href={repost.videoUrl} target="_blank" rel="noreferrer"><Video aria-hidden="true" />{repost.videoUrl}<ArrowUpRight aria-hidden="true" /></a>}<a className="profile-repost-original" href={`/#${repost.type}-${repost.id}`}>{repost.authorName} · @{repost.authorUsername}</a><PostEngagement type={repost.type} contentId={repost.id} authorId={repost.authorId} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(`/u/${profile.username}`)}`))} /></article>)}</div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Repeat2 aria-hidden="true" /></span><h2>{labels.empty}</h2></div>}
++              {reels.map((reel) => <article className="search-post" key={reel.id}><UserName userId={profile.id} name={profile.displayName} username={profile.username} createdAt={profile.accountCreatedAt} nameStyle={profile.nameStyle} customTitle={profile.customTitle} locale={locale} /><span className="category-pill">{labels.reels}</span><h3>{reel.caption ? <RichText text={reel.caption} /> : labels.reels}</h3><video className="profile-reel-player" controls playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.reels} /><PostEngagement type="reel" contentId={reel.id} authorId={profile.id} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(`/u/${profile.username}`)}`))} /></article>)}
++            </div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Video aria-hidden="true" /></span><h2>{labels.empty}</h2></div> : profileTab === 'likes' ? likedReelData?.reels.length ? <div className="news-list">{likedReelData.reels.map((reel) => <article className="search-post" key={reel.id}><h3>{reel.caption ? <RichText text={reel.caption} /> : labels.reels}</h3><video className="profile-reel-player" controls playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.reels} /><PostEngagement type="reel" contentId={reel.id} authorId={reel.authorId} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign('/auth/login'))} /></article>)}</div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Heart aria-hidden="true" /></span><h2>{labels.empty}</h2></div> : repostData?.reposts.length ? <div className="news-list">{repostData.reposts.map((repost) => <article className="search-post profile-repost-card" key={`${repost.type}-${repost.id}`}><span className="profile-repost-label"><Repeat2 aria-hidden="true" />{labels.repostedBy} @{profile.username}</span><span className="category-pill">{repost.type === 'reel' ? labels.reels : repost.type}</span><h3>{repost.type === 'reel' ? repost.caption || labels.reels : repost.type === 'news' ? repost.title : locale === 'ar' ? 'منشور يومي' : 'Daily post'}</h3>{repost.type !== 'reel' && repost.body && <p><RichText text={repost.body} /></p>}{repost.type === 'reel' && repost.videoUrl && <video className="profile-reel-player" controls playsInline preload="metadata" src={repost.videoUrl} />}<a className="profile-repost-original" href={`/#${repost.type}-${repost.id}`}>{repost.authorName} · @{repost.authorUsername}</a><PostEngagement type={repost.type} contentId={repost.id} authorId={repost.authorId} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(`/u/${profile.username}`)}`))} /></article>)}</div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Repeat2 aria-hidden="true" /></span><h2>{labels.empty}</h2></div>}
+             {relationshipDirection && <RelationshipModal
+               userId={profile.id}
+               viewerId={viewer?.id ?? null}
+@@ -480,6 +493,8 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
+   const [publishing, setPublishing] = useState(false)
+   const [error, setError] = useState('')
+   const [composerOpen, setComposerOpen] = useState(false)
++  const [likedReelIds, setLikedReelIds] = useState<Set<string>>(() => new Set())
++  const visibleReels = reels.filter((reel) => !likedReelIds.has(reel.id))
+ 
+   async function openComposer() {
+     if (!viewer) return onSignIn()
+@@ -490,6 +505,7 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
+     event?.preventDefault()
+     setError('')
+     if (!file) return
++    if (countWords(caption) > 100) return setError(locale === 'ar' ? 'يجب ألا يتجاوز الوصف ١٠٠ كلمة.' : 'Captions can be up to 100 words.')
+     if (!['video/mp4', 'video/webm'].includes(file.type)) return setError(labels.format)
+     if (file.size > 40 * 1024 * 1024) return setError(labels.tooLarge)
+     let durationSeconds: number
+@@ -545,19 +561,19 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
+       {composerOpen && <ModalPortal backdropClassName="social-composer-modal-backdrop" dialogClassName="social-composer-modal reel-composer-modal" labelId="reel-composer-title" onClose={() => { if (!publishing) setComposerOpen(false) }}>
+         <div className="social-composer-modal-heading"><h2 id="reel-composer-title">{labels.publish}</h2><button className="icon-button" type="button" disabled={publishing} onClick={() => setComposerOpen(false)} aria-label={locale === 'ar' ? 'إغلاق' : 'Close'}><X aria-hidden="true" /></button></div>
+         <form className="reel-composer" onSubmit={publishReel}>
+-          <label className="reel-caption-field"><span>{labels.caption}</span><MentionTextarea maxLength={500} value={caption} onChange={setCaption} locale={locale} rows={3} placeholder={`${labels.caption} · #community`} className="reel-caption-input" /></label>
+-          <div className="reel-composer-footer"><label className="reel-file-picker"><input type="file" accept="video/mp4,video/webm" onChange={(event) => { setFile(event.currentTarget.files?.[0] ?? null); event.currentTarget.value = '' }} /><Upload aria-hidden="true" /><span>{file?.name ?? labels.file}</span></label><button className="section-primary-button" type="submit" disabled={!file || publishing}>{publishing ? labels.publishing : labels.publish}<Plus aria-hidden="true" /></button></div>
++          <label className="reel-caption-field"><span>{labels.caption}</span><MentionTextarea maxLength={500} value={caption} onChange={setCaption} locale={locale} rows={3} placeholder={`${labels.caption} · #community`} className="reel-caption-input" /><small>{countWords(caption)}/100 {locale === 'ar' ? 'كلمة' : 'words'}</small></label>
++          <div className="reel-composer-footer"><label className="reel-file-picker"><input type="file" accept="video/mp4,video/webm" onChange={(event) => { setFile(event.currentTarget.files?.[0] ?? null); event.currentTarget.value = '' }} /><Upload aria-hidden="true" /><span>{file?.name ?? labels.file}</span></label><button className="section-primary-button" type="submit" disabled={!file || publishing || countWords(caption) > 100}>{publishing ? labels.publishing : labels.publish}<Plus aria-hidden="true" /></button></div>
+           <p className="reel-upload-hint">{labels.fileHint}</p>
+           {publishing && <div className="upload-progress"><div><span>{labels.upload}</span><strong>{progress}%</strong></div><progress value={progress} max={100} aria-label={labels.upload} /></div>}
+           {error && <div className="form-error" role="alert"><p>{error}</p><button type="button" className="section-secondary-button" disabled={publishing} onClick={() => document.querySelector<HTMLFormElement>('.reel-composer')?.requestSubmit()}>{labels.retry}</button></div>}
+         </form>
+       </ModalPortal>}
+-      {reels.length ? <div className="reel-list">{reels.map((reel) => <article className="reel-card" id={`reel-${reel.id}`} key={reel.id}>
++      {visibleReels.length ? <div className="reel-list">{visibleReels.map((reel) => <article className="reel-card" id={`reel-${reel.id}`} key={reel.id}>
+         <video className="reel-video" controls playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.title} />
+         <div className="reel-card-content"><div className="reel-author"><span>{reel.authorAvatar ? <img src={reel.authorAvatar} alt="" /> : <UserRound aria-hidden="true" />}</span><a href={`/u/${encodeURIComponent(reel.authorUsername)}`}><UserName userId={reel.authorId} name={reel.authorName} username={reel.authorUsername} createdAt={reel.authorCreatedAt} nameStyle={reel.authorNameStyle} customTitle={reel.authorCustomTitle} locale={locale} /></a></div>
+           {reel.caption && <p><RichText text={reel.caption} /></p>}
+           {reel.tags.length > 0 && <div className="tag-row">{reel.tags.map((tag) => <a className="post-tag" key={tag} href={`/tags/${encodeURIComponent(tag)}?lang=${locale}`}>#{tag}</a>)}</div>}
+-          <PostEngagement type="reel" contentId={reel.id} authorId={reel.authorId} viewer={viewer} locale={locale} onSignIn={onSignIn} variant="reel" />
++          <PostEngagement type="reel" contentId={reel.id} authorId={reel.authorId} viewer={viewer} locale={locale} onSignIn={onSignIn} variant="reel" onLikeChange={(liked) => setLikedReelIds((current) => { const next = new Set(current); if (liked) next.add(reel.id); else next.delete(reel.id); return next })} />
+         </div>
+       </article>)}</div> : <div className="section-empty reels-empty"><span className="section-empty-icon"><Video aria-hidden="true" /></span><h2>{labels.empty}</h2><p>{labels.emptyBody}</p></div>}
+     </section>
+diff --git a/components/direct-messages-section.tsx b/components/direct-messages-section.tsx
+index b95e669..71eef2d 100644
+--- a/components/direct-messages-section.tsx
++++ b/components/direct-messages-section.tsx
+@@ -1,6 +1,6 @@
+ 'use client'
+ 
+-import { useDeferredValue, useState } from 'react'
++import { useDeferredValue, useEffect, useRef, useState } from 'react'
+ import useSWR from 'swr'
+ import { ArrowLeft, Check, ImagePlus, LockKeyhole, MessageCircle, Search, Send, UserRound } from 'lucide-react'
+ import { Button } from '@/components/ui/button'
+@@ -52,9 +52,9 @@ function Avatar({ avatarUrl, name }: { avatarUrl: string | null; name: string })
+     : <span className="dm-avatar dm-avatar-fallback" aria-hidden="true"><UserRound /></span>
+ }
+ 
+-export function DirectMessagesSection({ viewer, locale, onSignIn }: { viewer: CurrentUser | null; locale: Locale; onSignIn: () => void }) {
++export function DirectMessagesSection({ viewer, locale, onSignIn, initialMessageTo }: { viewer: CurrentUser | null; locale: Locale; onSignIn: () => void; initialMessageTo?: string | null }) {
+   const copy = labels[locale]
+-  const [search, setSearch] = useState('')
++  const [search, setSearch] = useState(initialMessageTo ?? '')
+   const deferredSearch = useDeferredValue(search.trim())
+   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
+   const [activePeer, setActivePeer] = useState<Peer | null>(null)
+@@ -65,6 +65,7 @@ export function DirectMessagesSection({ viewer, locale, onSignIn }: { viewer: Cu
+   const [uploadProgress, setUploadProgress] = useState(0)
+   const [busyPersonId, setBusyPersonId] = useState<string | null>(null)
+   const [error, setError] = useState('')
++  const initialMessageOpened = useRef(false)
+   const eligible = Boolean(viewer)
+ 
+   const { data: peopleData, isLoading: peopleLoading, mutate: refreshPeople } = useSWR<{ people: Person[] }>(
+@@ -82,6 +83,18 @@ export function DirectMessagesSection({ viewer, locale, onSignIn }: { viewer: Cu
+     { refreshInterval: 5000 },
+   )
+ 
++  useEffect(() => {
++    if (initialMessageOpened.current || !initialMessageTo || !peopleData?.people) return
++    const person = peopleData.people.find((candidate) => candidate.username.toLowerCase() === initialMessageTo.toLowerCase())
++    if (!person) return
++    initialMessageOpened.current = true
++    if (!person.following || !person.followsYou) {
++      setError(copy.locked)
++      return
++    }
++    void createConversation(person)
++  }, [copy.locked, initialMessageTo, peopleData?.people])
++
+   async function createConversation(person: Peer) {
+     setError('')
+     try {
+diff --git a/components/news-app.tsx b/components/news-app.tsx
+index bf71f6c..d3b98fa 100644
+--- a/components/news-app.tsx
++++ b/components/news-app.tsx
+@@ -74,6 +74,7 @@ type NewsAppProps = {
+   initialModerator: boolean
+   initialProfileFlair: { nameStyle: string | null; customTitle: string | null }
+   initialComposerOpen: boolean
++  initialMessageTo?: string | null
+   inviteUrl: string | null
+   authNotice: string | null
+ }
+@@ -177,6 +178,7 @@ export function NewsApp({
+   initialModerator,
+   initialProfileFlair,
+   initialComposerOpen,
++  initialMessageTo,
+   inviteUrl,
+   authNotice,
+ }: NewsAppProps) {
+@@ -665,7 +667,7 @@ export function NewsApp({
+                         <span className="meta-dot" aria-hidden="true">·</span>
+                         <time dateTime={post.createdAt}>{relativeTime(post.createdAt, locale)}</time>
+                       </div>
+-                      <h2>{post.title}</h2>
++                      <h2><a className="news-title-link" href={`/#news-${post.id}`}>{post.title}</a></h2>
+                       <p className="post-excerpt"><RichText text={post.body} /></p>
+                       {post.tags.length > 0 && <div className="tag-row">{post.tags.map((tag) => <a className="post-tag" key={tag} href={`/tags/${encodeURIComponent(tag)}?lang=${locale}`}>#{tag}</a>)}</div>}
+                       <div className="post-footer">
+@@ -693,7 +695,7 @@ export function NewsApp({
+  />}
+                 {activeSection === 'stories' && <StoriesSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} onCreateContent={checkContentMembership} onMembershipRequired={() => setJoinModalOpen(true)} />}
+                 {activeSection === 'search' && <DatabaseSearchSection query={query} onQueryChange={setQuery} locale={locale} />}
+-                {activeSection === 'messages' && <DirectMessagesSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} />}
++                {activeSection === 'messages' && <DirectMessagesSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} initialMessageTo={initialMessageTo} />}
+                 {activeSection === 'groups' && <GroupsSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} />}
+                 {activeSection === 'notifications' && <NotificationsSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} />}
+                 {activeSection === 'profile' && currentUser && <ProfileSection profile={{ ...currentUser, ...initialProfileFlair, isMember: userIsMember }} posts={profilePosts} reels={profileReels} locale={locale} editable viewer={{ ...currentUser, isMember: userIsMember }} onSignIn={() => window.location.assign(loginHref)} onProfileSaved={(updated) => setCurrentUser((user) => user ? { ...user, ...updated } : user)} />}
+diff --git a/components/post-engagement.tsx b/components/post-engagement.tsx
+index 5248213..701894a 100644
+--- a/components/post-engagement.tsx
++++ b/components/post-engagement.tsx
+@@ -2,7 +2,7 @@
+ 
+ import { useState } from 'react'
+ import useSWR from 'swr'
+-import { Heart, MessageCircle, Repeat2, Send, ChevronDown, X, Pin } from 'lucide-react'
++import { Heart, MessageCircle, Repeat2, Send, ChevronDown, X, Pin, Share2, Copy, MoreHorizontal } from 'lucide-react'
+ import { MentionTextarea, RichText } from '@/components/mention-textarea'
+ import { ModalPortal } from '@/components/modal-portal'
+ import type { CurrentUser } from '@/lib/session'
+@@ -31,6 +31,7 @@ type RepostResponse = { count: number; repostedByMe: boolean }
+ type LikeResponse = { count: number; likedByMe: boolean }
+ type Reaction = { userId: string; name: string; username: string; avatarUrl: string | null; createdAt: string; followsViewer: boolean; nameStyle: string | null; customTitle: string | null }
+ type ReactionResponse = { reactions: Reaction[] }
++type SharePerson = { id: string; username: string; displayName: string; avatarUrl: string | null; accountCreatedAt: string; nameStyle: string | null; customTitle: string | null; following: boolean; followsYou: boolean }
+ 
+ async function fetchJson<T>(url: string): Promise<T> {
+   const response = await fetch(url, { cache: 'no-store' })
+@@ -47,7 +48,7 @@ function formatDate(value: string, locale: Locale) {
+   return new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+ }
+ 
+-export function PostEngagement({ type, contentId, authorId, viewer, locale, onSignIn, variant }: {
++export function PostEngagement({ type, contentId, authorId, viewer, locale, onSignIn, variant, onLikeChange }: {
+   type: ContentType
+   contentId: string
+   authorId: string
+@@ -55,6 +56,7 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
+   locale: Locale
+   onSignIn: () => void
+   variant?: 'default' | 'reel'
++  onLikeChange?: (liked: boolean) => void
+ }) {
+   const copy = labels[locale]
+   const [commentsOpen, setCommentsOpen] = useState(false)
+@@ -67,6 +69,11 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
+   const [busy, setBusy] = useState(false)
+   const [likePulse, setLikePulse] = useState(false)
+   const [repostPulse, setRepostPulse] = useState(false)
++  const [shareOpen, setShareOpen] = useState(false)
++  const [shareQuery, setShareQuery] = useState('')
++  const [shareBusy, setShareBusy] = useState(false)
++  const [shareError, setShareError] = useState('')
++  const [moreOpen, setMoreOpen] = useState(false)
+   const [followStatuses, setFollowStatuses] = useState<Record<string, boolean>>({})
+   const [followBusy, setFollowBusy] = useState<string | null>(null)
+   const commentsKey = `/api/social/comments?type=${type}&id=${contentId}`
+@@ -78,6 +85,7 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
+   const reactionKey = reactionSheetOpen ? `/api/social/reactions?type=${type}&id=${contentId}&kind=${reactionTab}` : null
+   const { data: reactionData, isLoading: reactionsLoading, error: reactionLoadError } = useSWR<ReactionResponse>(reactionKey, fetchJson)
+   const { data: blockData, isLoading: blocksLoading, error: blocksLoadError } = useSWR<{ blocks: { id: string }[] }>(reactionSheetOpen && viewer ? '/api/social/blocks' : null, fetchJson)
++  const { data: sharePeople } = useSWR<{ people: SharePerson[] }>(shareOpen && viewer && shareQuery.trim().length >= 2 ? `/api/dm/people?q=${encodeURIComponent(shareQuery.trim())}` : null, fetchJson)
+   const comments = commentData?.comments ?? []
+   const roots = comments.filter((comment) => !comment.threadRootId)
+   const blockedIds = new Set((blockData?.blocks ?? []).map((block) => block.id))
+@@ -127,6 +135,7 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
+       const result = await response.json() as { liked?: boolean; count?: number; likeCount?: number }
+       if (!response.ok || typeof result.liked !== 'boolean') throw new Error('like_failed')
+       await mutateLike({ count: result.count ?? result.likeCount ?? optimistic.count, likedByMe: result.liked }, false)
++      onLikeChange?.(result.liked)
+     } catch {
+       await mutateLike(previous, false)
+       setError(locale === 'ar' ? 'تعذر تحديث الإعجاب.' : 'Could not update your like.')
+@@ -168,6 +177,45 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
+     }
+   }
+ 
++  async function shareReel(person: SharePerson) {
++      if (!viewer || type !== 'reel' || shareBusy) return
++      setShareBusy(true)
++      setShareError('')
++      try {
++        const conversationResponse = await fetch('/api/dm/conversations', {
++          method: 'POST',
++          headers: { 'Content-Type': 'application/json' },
++          body: JSON.stringify({ recipientId: person.id }),
++        })
++        const conversation = await conversationResponse.json() as { conversationId?: string; error?: string }
++        if (!conversationResponse.ok || !conversation.conversationId) throw new Error(conversation.error ?? 'conversation_failed')
++        const reelLink = `${window.location.origin}/?section=reels#reel-${encodeURIComponent(contentId)}`
++        const messageResponse = await fetch(`/api/dm/conversations/${encodeURIComponent(conversation.conversationId)}/messages`, {
++          method: 'POST',
++          headers: { 'Content-Type': 'application/json' },
++          body: JSON.stringify({ body: `Reel: ${reelLink}` }),
++        })
++        if (!messageResponse.ok) throw new Error('share_failed')
++        setShareOpen(false)
++        setShareQuery('')
++      } catch (caught) {
++        setShareError(caught instanceof Error && caught.message === 'mutual_follow_required'
++          ? (locale === 'ar' ? 'يجب أن يتابع كل منكما الآخر لإرسال رسالة.' : 'You must follow each other to send a message.')
++          : (locale === 'ar' ? 'تعذر إرسال الريل.' : 'Could not send this Reel.'))
++      } finally {
++        setShareBusy(false)
++      }
++  }
++
++  async function copyReelLink() {
++      const url = `${window.location.origin}/?section=reels#reel-${encodeURIComponent(contentId)}`
++      try {
++        await navigator.clipboard.writeText(url)
++      } catch {
++        setError(locale === 'ar' ? 'تعذر نسخ الرابط.' : 'Could not copy the Reel link.')
++    }
++  }
++
+   async function followReactionUser(reaction: Reaction) {
+     if (!viewer) return onSignIn()
+     if (reaction.userId === viewer.id || followBusy) return
+@@ -255,7 +303,11 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
+           {viewer?.id !== authorId && <button className={`post-engagement-action ${repostData?.repostedByMe ? 'post-engagement-action-reposted' : ''} ${repostPulse ? 'post-engagement-action-pulse' : ''}`} type="button" aria-pressed={repostData?.repostedByMe ?? false} onClick={() => void toggleRepost()}><Repeat2 aria-hidden="true" /><span>{repostData?.repostedByMe ? copy.reposted : copy.repost}</span></button>}
+           <button className={`post-reaction-count ${(repostData?.count ?? 0) === 0 ? 'post-reaction-count-zero' : ''}`} type="button" onClick={() => openReactions('reposts')} aria-label={locale === 'ar' ? `عرض ${repostData?.count ?? 0} إعادة نشر` : `View ${repostData?.count ?? 0} reposts`}>{formatSocialCount(repostData?.count ?? 0, locale)}</button>
+         </div>
+-        {viewer && viewer.id !== authorId && <ReportButton targetType={type} targetId={contentId} locale={locale} className="post-engagement-action post-report-button" />}
++        {variant === 'reel' && viewer && <button className="post-engagement-action" type="button" onClick={() => { setShareOpen(true); setShareError('') }}><Share2 aria-hidden="true" /><span>{locale === 'ar' ? 'إرسال' : 'Share to DM'}</span></button>}
++        {variant === 'reel' && <button className="post-engagement-action" type="button" onClick={() => void copyReelLink()}><Copy aria-hidden="true" /><span>{locale === 'ar' ? 'نسخ الرابط' : 'Copy link'}</span></button>}
++        {variant === 'reel' && viewer && viewer.id !== authorId && <button className="post-engagement-action" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><MoreHorizontal aria-hidden="true" /><span>{locale === 'ar' ? 'المزيد' : 'More'}</span></button>}
++        {variant === 'reel' && moreOpen && viewer && <div className="reel-more-menu"><ReportButton targetType={type} targetId={contentId} locale={locale} className="post-engagement-action post-report-button" /></div>}
++        {variant !== 'reel' && viewer && viewer.id !== authorId && <ReportButton targetType={type} targetId={contentId} locale={locale} className="post-engagement-action post-report-button" />}
+       </div>
+       {error && <p className="social-error" role="alert">{error}</p>}
+       {(likeLoadError || repostLoadError || commentLoadError) && <p className="social-error" role="alert">{locale === 'ar' ? 'تعذر تحميل التفاعلات أو التعليقات.' : 'Could not load engagement counts or comments.'}</p>}
+@@ -302,6 +354,12 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
+           </li>)}</ul> : !reactionsLoading && !blocksLoading && !reactionLoadError && !blocksLoadError && <p className="reaction-sheet-empty">{locale === 'ar' ? 'لا توجد تفاعلات بعد.' : 'No reactions yet.'}</p>}
+           {error && <p className="social-error" role="alert">{error}</p>}
+       </ModalPortal>}
++      {shareOpen && <ModalPortal backdropClassName="reaction-sheet-backdrop" dialogClassName="reaction-sheet reel-share-sheet" labelId="reel-share-title" onClose={() => setShareOpen(false)}>
++        <div className="reaction-sheet-heading"><h2 id="reel-share-title">{locale === 'ar' ? 'إرسال الريل' : 'Share this Reel'}</h2><button type="button" className="icon-button" onClick={() => setShareOpen(false)} aria-label={locale === 'ar' ? 'إغلاق' : 'Close'}><X aria-hidden="true" /></button></div>
++        <label className="reel-share-search"><span>{locale === 'ar' ? 'ابحث عن عضو' : 'Find a member'}</span><input value={shareQuery} onChange={(event) => setShareQuery(event.target.value)} minLength={2} autoFocus /></label>
++        <div className="reel-share-people">{(sharePeople?.people ?? []).map((person) => <button key={person.id} type="button" disabled={shareBusy || !person.following || !person.followsYou} onClick={() => void shareReel(person)}><UserName userId={person.id} name={person.displayName} username={person.username} nameStyle={person.nameStyle} customTitle={person.customTitle} locale={locale} /><small>{!person.following || !person.followsYou ? (locale === 'ar' ? 'المتابعة المتبادلة مطلوبة' : 'Mutual follow required') : shareBusy ? (locale === 'ar' ? 'جارٍ الإرسال…' : 'Sending…') : ''}</small></button>)}</div>
++        {shareError && <p className="social-error" role="alert">{shareError}</p>}
++      </ModalPortal>}
+     </section>
+   )
+ }
+diff --git a/components/stories-section.tsx b/components/stories-section.tsx
+index fd19ab6..2cdc605 100644
+--- a/components/stories-section.tsx
++++ b/components/stories-section.tsx
+@@ -14,14 +14,14 @@ import { ModalPortal } from '@/components/modal-portal'
+ import { UserName } from '@/components/user-name'
+ 
+ type Locale = 'en' | 'ar'
+-type Story = { id: string; authorId: string; body: string; mediaUrl: string | null; createdAt: string; expiresAt: string; authorName: string; authorUsername: string; authorAvatar: string | null; authorNameStyle: string | null; authorCustomTitle: string | null }
++type Story = { id: string; authorId: string; body: string; mediaUrl: string | null; mediaType?: 'image' | 'video' | null; createdAt: string; expiresAt: string; authorName: string; authorUsername: string; authorAvatar: string | null; authorNameStyle: string | null; authorCustomTitle: string | null }
+ type DailyPost = { id: string; authorId: string; body: string; mediaUrl: string | null; tags: string[]; createdAt: string; authorName: string; authorUsername: string; authorAvatar: string | null; authorCreatedAt: string | null; authorNameStyle: string | null; authorCustomTitle: string | null }
+ type FeedData = { stories: Story[]; posts: DailyPost[]; nextCursor: string | null }
+ 
+ const labels = {
+-  en: { title: 'Stories & daily life', description: 'Small moments from the people in your community.', stories: 'Stories · 24 hours', moments: 'Daily moments', shareStory: 'Share a story', shareDaily: 'Share a daily moment', older: 'Load older moments', storyPlaceholder: 'What is happening right now?', dailyPlaceholder: 'A small moment worth sharing…', image: 'Add a photo', publishStory: 'Post story', publishDaily: 'Share moment', publishing: 'Publishing…', emptyStories: 'No active stories yet.', emptyPosts: 'Your everyday moments will be here.', imageAlt: 'Community moment', login: 'Log in with Discord to share a moment.', member: 'Join the Discord community to publish.', membershipUnavailable: 'Discord membership could not be checked. Please try again.', invalid: 'Check your text and image, then try again.', uploadError: 'The image upload failed. Please try again.', fileType: 'Choose a JPG, PNG, WebP, or GIF image.', fileSize: 'Images can be up to 10 MB.', error: 'Could not publish this moment. Please try again.', openStory: 'Open story', closeStory: 'Close story', expires: 'Expires',
++  en: { title: 'Stories & daily life', description: 'Small moments from the people in your community.', stories: 'Stories · 24 hours', moments: 'Daily moments', shareStory: 'Share a story', shareDaily: 'Share a daily moment', older: 'Load older moments', storyPlaceholder: 'What is happening right now?', dailyPlaceholder: 'A small moment worth sharing…', image: 'Add a photo or video', publishStory: 'Post story', publishDaily: 'Share moment', publishing: 'Publishing…', emptyStories: 'No active stories yet.', emptyPosts: 'Your everyday moments will be here.', imageAlt: 'Community moment', login: 'Log in with Discord to share a moment.', member: 'Join the Discord community to publish.', membershipUnavailable: 'Discord membership could not be checked. Please try again.', invalid: 'Check your text and image, then try again.', uploadError: 'The media upload failed. Please try again.', fileType: 'Choose an image, MP4, or WebM video.', fileSize: 'Images can be up to 10 MB; videos up to 40 MB and 60 seconds.', error: 'Could not publish this moment. Please try again.', openStory: 'Open story', closeStory: 'Close story', expires: 'Expires',
+   },
+-  ar: { title: 'القصص والحياة اليومية', description: 'لحظات صغيرة من أفراد مجتمعك.', stories: 'القصص · ٢٤ ساعة', moments: 'لحظات يومية', shareStory: 'شارك قصة', shareDaily: 'شارك لحظة يومية', older: 'تحميل لحظات أقدم', storyPlaceholder: 'ما الذي يحدث الآن؟', dailyPlaceholder: 'لحظة صغيرة تستحق المشاركة…', image: 'أضف صورة', publishStory: 'نشر القصة', publishDaily: 'مشاركة اللحظة', publishing: 'جارٍ النشر…', emptyStories: 'لا توجد قصص نشطة بعد.', emptyPosts: 'ستظهر لحظاتك اليومية هنا.', imageAlt: 'لحظة من المجتمع', login: 'سجّل الدخول عبر Discord لمشاركة لحظة.', member: 'انضم إلى مجتمع Discord للنشر.', membershipUnavailable: 'تعذر التحقق من عضويتك في Discord. حاول مرة أخرى.', invalid: 'تحقق من النص والصورة ثم حاول مرة أخرى.', uploadError: 'تعذر رفع الصورة. حاول مرة أخرى.', fileType: 'اختر صورة JPG أو PNG أو WebP أو GIF.', fileSize: 'يجب ألا يتجاوز حجم الصورة 10 ميغابايت.', error: 'تعذرت مشاركة اللحظة. حاول مرة أخرى.', openStory: 'عرض القصة', closeStory: 'إغلاق القصة', expires: 'تنتهي',
++  ar: { title: 'القصص والحياة اليومية', description: 'لحظات صغيرة من أفراد مجتمعك.', stories: 'القصص · ٢٤ ساعة', moments: 'لحظات يومية', shareStory: 'شارك قصة', shareDaily: 'شارك لحظة يومية', older: 'تحميل لحظات أقدم', storyPlaceholder: 'ما الذي يحدث الآن؟', dailyPlaceholder: 'لحظة صغيرة تستحق المشاركة…', image: 'أضف صورة أو فيديو', publishStory: 'نشر القصة', publishDaily: 'مشاركة اللحظة', publishing: 'جارٍ النشر…', emptyStories: 'لا توجد قصص نشطة بعد.', emptyPosts: 'ستظهر لحظاتك اليومية هنا.', imageAlt: 'لحظة من المجتمع', login: 'سجّل الدخول عبر Discord لمشاركة لحظة.', member: 'انضم إلى مجتمع Discord للنشر.', membershipUnavailable: 'تعذر التحقق من عضويتك في Discord. حاول مرة أخرى.', invalid: 'تحقق من النص والصورة ثم حاول مرة أخرى.', uploadError: 'تعذر رفع الملف. حاول مرة أخرى.', fileType: 'اختر صورة أو فيديو MP4 أو WebM.', fileSize: 'الصور حتى ١٠ ميغابايت والفيديو حتى ٤٠ ميغابايت و٦٠ ثانية.', error: 'تعذرت مشاركة اللحظة. حاول مرة أخرى.', openStory: 'عرض القصة', closeStory: 'إغلاق القصة', expires: 'تنتهي',
+   },
+ } satisfies Record<Locale, Record<string, string>>
+ 
+@@ -63,11 +63,11 @@ export function StoriesSection({ viewer, locale, onSignIn, onCreateContent, onMe
+ 
+   function validateFile(file: File | null) {
+     if (!file) return true
+-    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
++    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm'].includes(file.type)) {
+       setError(copy.fileType)
+       return false
+     }
+-    if (file.size > 10 * 1024 * 1024) {
++    if (file.size > (file.type.startsWith('video/') ? 40 : 10) * 1024 * 1024) {
+       setError(copy.fileSize)
+       return false
+     }
+@@ -75,10 +75,20 @@ export function StoriesSection({ viewer, locale, onSignIn, onCreateContent, onMe
+     return true
+   }
+ 
+-  async function uploadImage(file: File | null, kind: 'story' | 'daily', onProgress: (percentage: number) => void) {
++  async function uploadStoryMedia(file: File | null, onProgress: (percentage: number) => void) {
+     if (!file) return null
+-    const uploadFile = file.type === 'image/gif' ? file : await compressImage(file)
+-    const result = await uploadMedia({ endpoint: '/api/daily/upload', file: uploadFile, kind, onProgress })
++    const uploadFile = file.type.startsWith('video/') || file.type === 'image/gif' ? file : await compressImage(file)
++    const durationSeconds = uploadFile.type.startsWith('video/')
++      ? await new Promise<number>((resolve, reject) => {
++          const video = document.createElement('video')
++          video.preload = 'metadata'
++        video.src = URL.createObjectURL(uploadFile)
++        video.onloadedmetadata = () => { URL.revokeObjectURL(video.src); resolve(video.duration) }
++        video.onerror = () => { URL.revokeObjectURL(video.src); reject(new Error('invalid_input')) }
++        })
++      : undefined
++    if (durationSeconds !== undefined && durationSeconds > 60) throw new Error('video_too_long')
++    const result = await uploadMedia({ endpoint: '/api/daily/upload', file: uploadFile, kind: 'story', ...(durationSeconds === undefined ? {} : { durationSeconds, multipart: true }), onProgress })
+     return result.url
+   }
+ 
+@@ -107,7 +117,7 @@ export function StoriesSection({ viewer, locale, onSignIn, onCreateContent, onMe
+     setRetryTarget(null)
+     let stage: 'upload' | 'publish' = 'upload'
+     try {
+-      const mediaUrl = await uploadImage(storyFile, 'story', setStoryProgress)
++      const mediaUrl = await uploadStoryMedia(storyFile, setStoryProgress)
+       stage = 'publish'
+       const response = await fetch('/api/stories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: storyBody.trim(), mediaUrl }) })
+       const result = await response.json().catch(() => null) as { story?: Story; error?: string; reason?: string } | null
+@@ -133,7 +143,7 @@ export function StoriesSection({ viewer, locale, onSignIn, onCreateContent, onMe
+         return
+       }
+       setRetryTarget('story')
+-      setError(code === 'invalid_story' ? copy.invalid
++      setError(code === 'video_too_long' ? copy.fileSize : code === 'invalid_story' ? copy.invalid
+         : stage === 'upload' ? localizedUploadError(code, locale, copy.uploadError) : copy.error)
+     } finally {
+       setStoryBusy(false)
+@@ -151,7 +161,7 @@ export function StoriesSection({ viewer, locale, onSignIn, onCreateContent, onMe
+     setRetryTarget(null)
+     let stage: 'upload' | 'publish' = 'upload'
+     try {
+-      const mediaUrl = await uploadImage(dailyFile, 'daily', setDailyProgress)
++      const mediaUrl = dailyFile ? (dailyFile.type.startsWith('video/') ? null : await uploadMedia({ endpoint: '/api/daily/upload', file: dailyFile.type === 'image/gif' ? dailyFile : await compressImage(dailyFile), kind: 'daily', onProgress: setDailyProgress }).then((result) => result.url)) : null
+       stage = 'publish'
+       const response = await fetch('/api/daily', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: dailyBody.trim(), mediaUrl }) })
+       const result = await response.json().catch(() => null) as { post?: DailyPost; error?: string; reason?: string } | null
+@@ -206,7 +216,7 @@ export function StoriesSection({ viewer, locale, onSignIn, onCreateContent, onMe
+             <MentionTextarea value={storyBody} onChange={setStoryBody} locale={locale} placeholder={copy.storyPlaceholder} maxLength={500} rows={3} className="story-composer-textarea" />
+             <div className="story-composer-actions">
+               <label className="reel-file-picker">
+-                <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label={copy.image} onChange={(event) => { const file = event.target.files?.[0] ?? null; if (validateFile(file)) setStoryFile(file); event.currentTarget.value = '' }} />
++                <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" aria-label={copy.image} onChange={(event) => { const file = event.target.files?.[0] ?? null; if (validateFile(file)) setStoryFile(file); event.currentTarget.value = '' }} />
+                 <ImagePlus aria-hidden="true" /><span>{storyFile?.name ?? copy.image}</span>
+               </label>
+               <Button type="submit" size="sm" disabled={storyBusy || (!storyBody.trim() && !storyFile)}>{storyBusy ? copy.publishing : copy.publishStory}<Plus data-icon="inline-end" /></Button>
+@@ -229,7 +239,7 @@ export function StoriesSection({ viewer, locale, onSignIn, onCreateContent, onMe
+         {error && <p className="stories-error" role="alert">{error}</p>}
+       </ModalPortal>}
+       <section className="story-strip" aria-labelledby="story-strip-title"><div className="stories-section-heading"><h2 id="story-strip-title">{copy.stories}</h2><span>{stories.length}</span></div>{stories.length ? <div className="story-card-list">{stories.map((story) => <button className="story-card" type="button" key={story.id} onClick={() => setActiveStory(story)} aria-label={`${copy.openStory}: ${story.authorName}`}><span className="story-avatar">{story.authorAvatar ? <img src={story.authorAvatar} alt="" /> : <UserRound aria-hidden="true" />}</span><UserName userId={story.authorId} name={story.authorName} username={story.authorUsername} createdAt={story.createdAt} nameStyle={story.authorNameStyle} customTitle={story.authorCustomTitle} locale={locale} /></button>)}</div> : <p className="stories-empty">{copy.emptyStories}</p>}</section>
+-      {activeStory && <ModalPortal backdropClassName="story-viewer-backdrop" dialogClassName="story-viewer" labelId="story-viewer-title" onClose={() => setActiveStory(null)}><div className="story-viewer-header"><div>{activeStory.authorAvatar ? <img src={activeStory.authorAvatar} alt="" /> : <UserRound aria-hidden="true" />}<UserName userId={activeStory.authorId} name={activeStory.authorName} username={activeStory.authorUsername} createdAt={activeStory.createdAt} nameStyle={activeStory.authorNameStyle} customTitle={activeStory.authorCustomTitle} locale={locale} /></div><Button type="button" size="sm" variant="ghost" onClick={() => setActiveStory(null)}>{copy.closeStory}</Button></div>{activeStory.mediaUrl && <img className="story-viewer-media" src={activeStory.mediaUrl} alt={copy.imageAlt} />}{activeStory.body && <p>{activeStory.body}</p>}<small>{copy.expires} {new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(activeStory.expiresAt))}</small></ModalPortal>}
++      {activeStory && <ModalPortal backdropClassName="story-viewer-backdrop" dialogClassName="story-viewer" labelId="story-viewer-title" onClose={() => setActiveStory(null)}><div className="story-viewer-header"><div>{activeStory.authorAvatar ? <img src={activeStory.authorAvatar} alt="" /> : <UserRound aria-hidden="true" />}<UserName userId={activeStory.authorId} name={activeStory.authorName} username={activeStory.authorUsername} createdAt={activeStory.createdAt} nameStyle={activeStory.authorNameStyle} customTitle={activeStory.authorCustomTitle} locale={locale} /></div><Button type="button" size="sm" variant="ghost" onClick={() => setActiveStory(null)}>{copy.closeStory}</Button></div>{activeStory.mediaUrl && (activeStory.mediaType === 'video' ? <video className="story-viewer-media" src={activeStory.mediaUrl} controls autoPlay playsInline /> : <img className="story-viewer-media" src={activeStory.mediaUrl} alt={copy.imageAlt} />)}{activeStory.body && <p>{activeStory.body}</p>}<small>{copy.expires} {new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(activeStory.expiresAt))}</small></ModalPortal>}
+       <section className="daily-post-list" aria-labelledby="daily-list-title"><div className="stories-section-heading"><h2 id="daily-list-title">{copy.moments}</h2><span>{posts.length}</span></div>{posts.length ? posts.map((post) => <article className="daily-post-card" key={post.id}><header className="daily-post-author">{post.authorAvatar ? <img src={post.authorAvatar} alt="" /> : <span><UserRound aria-hidden="true" /></span>}<a href={`/u/${encodeURIComponent(post.authorUsername)}`}><UserName userId={post.authorId} name={post.authorName} username={post.authorUsername} createdAt={post.authorCreatedAt} nameStyle={post.authorNameStyle} customTitle={post.authorCustomTitle} locale={locale} /></a><time dateTime={post.createdAt}>{new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(post.createdAt))}</time></header>{post.body && <p className="daily-post-body"><RichText text={post.body} /></p>}{post.mediaUrl && <img className="daily-post-media" src={post.mediaUrl} alt={copy.imageAlt} />}{post.tags.length > 0 && <div className="tag-row">{post.tags.map((tag) => <a className="post-tag" key={tag} href={`/tags/${encodeURIComponent(tag)}?lang=${locale}`} dir="ltr">#{tag}</a>)}</div>}<PostEngagement type="daily" contentId={post.id} authorId={post.authorId} viewer={viewer} locale={locale} onSignIn={onSignIn} /></article>) : <p className="stories-empty">{copy.emptyPosts}</p>}{data?.nextCursor && <Button type="button" size="sm" variant="outline" onClick={() => void loadOlderPosts()} disabled={loadingOlder}>{loadingOlder ? copy.publishing : copy.older}<ArrowUpRight data-icon="inline-end" /></Button>}</section>
+     </section>
+   )
+diff --git a/drizzle/0004_social_ui.sql b/drizzle/0004_social_ui.sql
+new file mode 100644
+index 0000000..73034a7
+--- /dev/null
++++ b/drizzle/0004_social_ui.sql
+@@ -0,0 +1,5 @@
++ALTER TABLE disloop_users
++  ADD COLUMN hide_reposts boolean NOT NULL DEFAULT false;
++
++ALTER TABLE disloop_stories
++  ADD COLUMN media_type varchar(16);
+diff --git a/lib/db/schema.ts b/lib/db/schema.ts
+index 366528b..925796a 100644
+--- a/lib/db/schema.ts
++++ b/lib/db/schema.ts
+@@ -36,6 +36,7 @@ export const disloopUsers = pgTable(
+     nameColor: varchar('name_color', { length: 7 }),
+     isStaffRole: varchar('is_staff_role', { length: 16 }),
+     hideLikes: boolean('hide_likes').notNull().default(false),
++    hideReposts: boolean('hide_reposts').notNull().default(false),
+     publicVisitCount: boolean('public_visit_count').notNull().default(false),
+     showStatus: boolean('show_status').notNull().default(true),
+     showNameColor: boolean('show_name_color').notNull().default(true),
+@@ -122,6 +123,7 @@ export const disloopStories = pgTable(
+     authorId: uuid('author_id').notNull(),
+     body: varchar('body', { length: 500 }).notNull().default(''),
+     mediaUrl: text('media_url'),
++    mediaType: varchar('media_type', { length: 16 }),
+     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull().default(sql`now() + interval '24 hours'`),
+   },
+diff --git a/lib/profile.ts b/lib/profile.ts
+index e8a8039..736020f 100644
+--- a/lib/profile.ts
++++ b/lib/profile.ts
+@@ -14,6 +14,7 @@ export type ProfileDetails = {
+   socialLinks: SocialLinks
+   publicVisitCount: boolean
+   hideLikes: boolean
++  hideReposts: boolean
+   isStaffRole: string | null
+   xp: number
+ }
+diff --git a/lib/reels.ts b/lib/reels.ts
+index a4f6718..a82551b 100644
+--- a/lib/reels.ts
++++ b/lib/reels.ts
+@@ -1,4 +1,4 @@
+-import { and, arrayContains, desc, eq, sql } from 'drizzle-orm'
++import { and, arrayContains, desc, eq, exists, not, sql } from 'drizzle-orm'
+ import { db } from '@/lib/db'
+ import { disloopReelLikes, disloopReels, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
+ 
+@@ -63,10 +63,22 @@ function serializeReel(reel: ReturnType<typeof reelFields> extends never ? never
+   }
+ }
+ 
+-export async function getReels(viewerId?: string, tag?: string, authorId?: string) {
++export async function getReels(
++  viewerId?: string,
++  tag?: string,
++  authorId?: string,
++  options: { likedOnly?: boolean; excludeLiked?: boolean } = {},
++) {
+   const filters = [eq(disloopReels.isHidden, false)]
+   if (tag) filters.push(arrayContains(disloopReels.tags, [tag]))
+   if (authorId) filters.push(eq(disloopReels.authorId, authorId))
++  if (viewerId && options.likedOnly) {
++    filters.push(exists(db.select({ one: sql`1` }).from(disloopReelLikes)
++      .where(and(eq(disloopReelLikes.reelId, disloopReels.id), eq(disloopReelLikes.userId, viewerId)))))
++  } else if (viewerId && options.excludeLiked !== false && !authorId) {
++    filters.push(not(exists(db.select({ one: sql`1` }).from(disloopReelLikes)
++      .where(and(eq(disloopReelLikes.reelId, disloopReels.id), eq(disloopReelLikes.userId, viewerId))))))
++  }
+ 
+   const rows = await db
+     .select(reelFields(viewerId))
+diff --git a/lib/session.ts b/lib/session.ts
+index 4d802be..5ff3e12 100644
+--- a/lib/session.ts
++++ b/lib/session.ts
+@@ -82,6 +82,7 @@ export async function getUserSessionResult(token: string | undefined): Promise<C
+         socialLinks: disloopUsers.socialLinks,
+         publicVisitCount: disloopUsers.publicVisitCount,
+         hideLikes: disloopUsers.hideLikes,
++        hideReposts: disloopUsers.hideReposts,
+         isStaffRole: disloopUsers.isStaffRole,
+         isBanned: disloopUsers.isBanned,
+         xp: disloopUsers.xp,
+diff --git a/lib/tags.ts b/lib/tags.ts
+index 0877b7a..9bcbb81 100644
+--- a/lib/tags.ts
++++ b/lib/tags.ts
+@@ -8,5 +8,10 @@ export function extractTags(text: string) {
+     tags.add(normalized)
+     if (tags.size > 10) throw new Error('too_many_tags')
+   }
++
+   return [...tags]
+ }
++
++export function countWords(text: string) {
++  return [...text.matchAll(/[\p{L}\p{N}][\p{L}\p{N}\p{M}]*(?:['’][\p{L}\p{N}\p{M}]+)*/gu)].length
++}
+diff --git a/lib/upload-config.ts b/lib/upload-config.ts
+index 6fe4b2d..19aa62f 100644
+--- a/lib/upload-config.ts
++++ b/lib/upload-config.ts
+@@ -8,8 +8,9 @@ export const UPLOAD_CONFIG = {
+   },
+   story: {
+     folder: 'daily',
+-    allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+-    maximumSizeInBytes: 10 * 1024 * 1024,
++    allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm'],
++    maximumSizeInBytes: 40 * 1024 * 1024,
++    maximumDurationSeconds: 60,
+     dailyLimit: 20,
+   },
+   daily: {
+diff --git a/lib/users.ts b/lib/users.ts
+index da9c2f9..67f79b0 100644
+--- a/lib/users.ts
++++ b/lib/users.ts
+@@ -122,6 +122,7 @@ export async function getPublicUserByUsername(username: string) {
+       socialLinks: disloopUsers.socialLinks,
+       publicVisitCount: disloopUsers.publicVisitCount,
+       hideLikes: disloopUsers.hideLikes,
++      hideReposts: disloopUsers.hideReposts,
+       isStaffRole: disloopUsers.isStaffRole,
+       xp: disloopUsers.xp,
+       isMember: disloopUsers.isMember,
+diff --git a/tests/social-ui.test.ts b/tests/social-ui.test.ts
+index 38f073f..bcb8259 100644
+--- a/tests/social-ui.test.ts
++++ b/tests/social-ui.test.ts
+@@ -1,5 +1,10 @@
+ import { describe, expect, it } from 'vitest'
+ import { formatSocialCount } from '@/lib/social-ui'
++import { countWords } from '@/lib/tags'
++import { buildUploadPath, isValidUploadPath, UPLOAD_CONFIG } from '@/lib/upload-config'
++
++const USER_ID = '11111111-1111-4111-8111-111111111111'
++const UPLOAD_ID = '22222222-2222-4222-8222-222222222222'
+ 
+ describe('formatSocialCount', () => {
+   it('keeps small counts exact', () => {
+@@ -7,6 +12,24 @@ describe('formatSocialCount', () => {
+     expect(formatSocialCount(0)).toBe('0')
+   })
+ 
++  describe('social media UI rules', () => {
++    it('counts multilingual caption words and enforces the 100-word boundary', () => {
++      expect(countWords('hello, @friend — welcome! مرحبًا 123')).toBe(5)
++      const hundredWords = Array.from({ length: 100 }, (_, index) => `word${index}`).join(' ')
++      expect(countWords(hundredWords)).toBe(100)
++      expect(countWords(`${hundredWords} extra`)).toBe(101)
++    })
++
++    it('allows short video uploads for stories without enabling them for daily posts', () => {
++      const storyPath = buildUploadPath('story', USER_ID, UPLOAD_ID, 'video/mp4')
++
++      expect(UPLOAD_CONFIG.story.allowedContentTypes).toContain('video/mp4')
++      expect(UPLOAD_CONFIG.story.maximumDurationSeconds).toBe(60)
++      expect(isValidUploadPath(storyPath, 'story', USER_ID)).toBe(true)
++      expect(isValidUploadPath(storyPath, 'daily', USER_ID)).toBe(false)
++    })
++  })
++
+   it('formats large counts compactly', () => {
+     expect(formatSocialCount(1200)).toBe('1.2K')
+     expect(formatSocialCount(3_400_000)).toBe('3.4M')
