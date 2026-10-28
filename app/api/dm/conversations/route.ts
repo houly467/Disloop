@@ -8,6 +8,7 @@ import { parseJsonBody } from '@/lib/validation'
 import { z } from 'zod'
 import { getCurrentUser } from '@/lib/session'
 import { rateLimitResponse } from '@/lib/rate-limit'
+import { isNewAccount } from '@/lib/new-account'
 
 export async function GET() {
   const user = await getCurrentUser()
@@ -52,7 +53,7 @@ export async function GET() {
       const lastMessage = latestByConversation.get(conversation.id)
       return [{
         id: conversation.id,
-        peer: { ...peer, accountCreatedAt: peer.accountCreatedAt.toISOString() },
+        peer: { ...peer, accountCreatedAt: peer.accountCreatedAt.toISOString(), isNewAccount: isNewAccount(peer.accountCreatedAt) },
         lastMessage: lastMessage ? { body: lastMessage.body, senderId: lastMessage.senderId, createdAt: lastMessage.createdAt } : null,
         lastMessageAt: conversation.lastMessageAt,
       }]

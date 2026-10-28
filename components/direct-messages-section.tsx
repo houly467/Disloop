@@ -20,18 +20,18 @@ import { uploadMedia } from '@/lib/client-upload'
 import { localizedUploadError } from '@/lib/client-errors'
 
 type Locale = 'en' | 'ar'
-type Person = { id: string; username: string; displayName: string; avatarUrl: string | null; accountCreatedAt: string; nameStyle: string | null; customTitle: string | null; following: boolean; followsYou: boolean }
-type Peer = Pick<Person, 'id' | 'username' | 'displayName' | 'avatarUrl' | 'accountCreatedAt' | 'nameStyle' | 'customTitle'>
+type Person = { id: string; username: string; displayName: string; avatarUrl: string | null; accountCreatedAt: string; isNewAccount: boolean; nameStyle: string | null; customTitle: string | null; following: boolean; followsYou: boolean }
+type Peer = Pick<Person, 'id' | 'username' | 'displayName' | 'avatarUrl' | 'accountCreatedAt' | 'isNewAccount' | 'nameStyle' | 'customTitle'>
 type DirectMessage = { id: string; senderId: string; body: string; mediaUrl: string | null; mediaType: string | null; createdAt: string; reactions: MessageReaction[] }
 type Conversation = { id: string; peer: Peer; lastMessage: { body: string; senderId: string; createdAt: string } | null; lastMessageAt: string }
 type ApiError = { error?: string }
 
 const labels = {
   en: {
-    title: 'Messages', intro: 'A quieter space for private conversations.', search: 'Find a community member', searchHint: 'Search by name or username', searchShort: 'Type at least 2 characters to find members.', searching: 'Searching members…', loadingMessages: 'Loading messages…', noPeople: 'No members found for that search.', conversations: 'Your conversations', noConversations: 'No conversations yet. Find a member and send them a message.', choose: 'Choose a conversation or find a member to message.', signInTitle: 'Sign in to send a message', signInBody: 'Log in with Discord to find members and start private conversations.', signIn: 'Log in with Discord', membershipTitle: 'Join the community first', membershipBody: 'Verify your Discord membership to follow members and send direct messages.', follow: 'Follow', following: 'Following', followBack: 'Follow back', mutual: 'Mutual follow', mutualHint: 'No messages yet. Say hello.', waiting: 'Follows you', start: 'Message', locked: 'You can message any community member.', sendPlaceholder: 'Write a message…', send: 'Send', sending: 'Sending…', startNote: 'You can message any community member.', error: 'That did not work. Please try again.', messageError: 'Message could not be sent. Please try again.', emptyMessages: 'Start the conversation with a hello.', back: 'Back to conversations', attach: 'Attach image', retry: 'Retry', imageAlt: 'Image shared in chat', fileType: 'Choose a JPG, PNG, WebP, or GIF image.', fileSize: 'Images can be up to 10 MB.', linkSafety: 'Only open links you trust. Links open in a new tab.',
+    title: 'Messages', intro: 'A quieter space for private conversations.', search: 'Find a community member', searchHint: 'Search by name or username', searchShort: 'Type at least 2 characters to find members.', searching: 'Searching members…', loadingMessages: 'Loading messages…', noPeople: 'No members found for that search.', conversations: 'Your conversations', noConversations: 'No conversations yet. Find a member and send them a message.', choose: 'Choose a conversation or find a member to message.', signInTitle: 'Sign in to send a message', signInBody: 'Log in with Discord to find members and start private conversations.', signIn: 'Log in with Discord', membershipTitle: 'Join the community first', membershipBody: 'Verify your Discord membership to follow members and send direct messages.', follow: 'Follow', following: 'Following', followBack: 'Follow Back', mutual: 'Mutual follow', mutualHint: 'No messages yet. Say hello.', waiting: 'Follows you', start: 'Message', locked: 'You can message any community member.', sendPlaceholder: 'Write a message…', send: 'Send', sending: 'Sending…', startNote: 'You can message any community member.', error: 'That did not work. Please try again.', messageError: 'Message could not be sent. Please try again.', emptyMessages: 'Start the conversation with a hello.', back: 'Back to conversations.', attach: 'Attach image', retry: 'Retry', imageAlt: 'Image shared in chat', fileType: 'Choose a JPG, PNG, WebP, or GIF image.', fileSize: 'Images can be up to 10 MB.', linkSafety: 'Only open links you trust. Links open in a new tab.',
   },
   ar: {
-    title: 'الرسائل', intro: 'مساحة هادئة للمحادثات الخاصة.', search: 'ابحث عن عضو في المجتمع', searchHint: 'ابحث بالاسم أو اسم المستخدم', searchShort: 'اكتب حرفين على الأقل للبحث عن الأعضاء.', searching: 'جارٍ البحث…', loadingMessages: 'جارٍ تحميل الرسائل…', noPeople: 'لم نعثر على أعضاء بهذا البحث.', conversations: 'محادثاتك', noConversations: 'لا توجد محادثات بعد. ابحث عن عضو وأرسل له رسالة.', choose: 'اختر محادثة أو ابحث عن عضو لمراسلته.', signInTitle: 'سجّل الدخول لإرسال رسالة', signInBody: 'سجّل الدخول عبر Discord للبحث عن الأعضاء وبدء محادثات خاصة.', signIn: 'تسجيل الدخول عبر Discord', membershipTitle: 'انضم إلى المجتمع أولًا', membershipBody: 'تحقق من عضويتك في Discord لمتابعة الأعضاء وإرسال الرسائل.', follow: 'متابعة', following: 'تتابعه', followBack: 'متابعة أيضًا', mutual: 'متابعة متبادلة', mutualHint: 'لا توجد رسائل بعد. ابدأ التحية.', waiting: 'يتابعك', start: 'مراسلة', locked: 'يمكنك مراسلة أي عضو في المجتمع.', sendPlaceholder: 'اكتب رسالة…', send: 'إرسال', sending: 'جارٍ الإرسال…', startNote: 'يمكنك مراسلة أي عضو في المجتمع.', error: 'تعذر إتمام ذلك. حاول مرة أخرى.', messageError: 'تعذر إرسال الرسالة. حاول مرة أخرى.', emptyMessages: 'ابدأ المحادثة بتحية بسيطة.', back: 'العودة إلى المحادثات', attach: 'إرفاق صورة', retry: 'إعادة المحاولة', imageAlt: 'صورة في المحادثة', fileType: 'اختر صورة JPG أو PNG أو WebP أو GIF.', fileSize: 'يجب ألا يتجاوز حجم الصورة ١٠ ميغابايت.', linkSafety: 'افتح الروابط التي تثق بها فقط. تفتح الروابط في نافذة جديدة.',
+    title: 'الرسائل', intro: 'مساحة هادئة للمحادثات الخاصة.', search: 'ابحث عن عضو في المجتمع', searchHint: 'ابحث بالاسم أو اسم المستخدم', searchShort: 'اكتب حرفين على الأقل للبحث عن الأعضاء.', searching: 'جارٍ البحث…', loadingMessages: 'جارٍ تحميل الرسائل…', noPeople: 'لم نعثر على أعضاء بهذا البحث.', conversations: 'محادثاتك', noConversations: 'لا توجد محادثات بعد. ابحث عن عضو وأرسل له رسالة.', choose: 'اختر محادثة أو ابحث عن عضو لمراسلته.', signInTitle: 'سجّل الدخول لإرسال رسالة', signInBody: 'سجّل الدخول عبر Discord للبحث عن الأعضاء وبدء محادثات خاصة.', signIn: 'تسجيل الدخول عبر Discord', membershipTitle: 'انضم إلى المجتمع أولًا', membershipBody: 'تحقق من عضويتك في Discord لمتابعة الأعضاء وإرسال الرسائل.', follow: 'متابعة', following: 'تتابعه', followBack: 'متابعة أيضًا', mutual: 'متابعة متبادلة', mutualHint: 'لا توجد رسائل بعد. ابدأ التحية.', waiting: 'يتابعك', start: 'مراسلة', locked: 'يمكنك مراسلة أي عضو في المجتمع.', sendPlaceholder: 'اكتب رسالة…', send: 'إرسال', sending: 'جارٍ الإرسال…', startNote: 'يمكنك مراسلة أي عضو في المجتمع.', error: 'تعذر إتمام ذلك. حاول مرة أخرى.', messageError: 'تعذر إرسال الرسالة. حاول مرة أخرى.', emptyMessages: 'ابدأ المحادثة بتحية بسيطة.', back: 'العودة إلى المحادثات.', attach: 'إرفاق صورة', retry: 'إعادة المحاولة', imageAlt: 'صورة في المحادثة', fileType: 'اختر صورة JPG أو PNG أو WebP أو GIF.', fileSize: 'يجب ألا يتجاوز حجم الصورة ١٠ ميغابايت.', linkSafety: 'افتح الروابط التي تثق بها فقط. تفتح الروابط في نافذة جديدة.',
   },
 } satisfies Record<Locale, Record<string, string>>
 
@@ -141,15 +141,17 @@ export function DirectMessagesSection({ viewer, locale, onSignIn, initialMessage
     setError('')
     try {
       let mediaUrl: string | null = null
+      let mediaType: string | null = null
       if (mediaFile) {
         const uploadFile = mediaFile.type === 'image/gif' ? mediaFile : await compressImage(mediaFile)
         const result = await uploadMedia({ endpoint: '/api/dm/upload', file: uploadFile, kind: 'dm', onProgress: setUploadProgress })
         mediaUrl = result.url
+        mediaType = uploadFile.type
       }
       const response = await fetch(`/api/dm/conversations/${activeConversationId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: draft.trim(), mediaUrl, mediaType: mediaFile?.type ?? null }),
+        body: JSON.stringify({ body: draft.trim(), mediaUrl, mediaType }),
       })
       if (!response.ok) throw new Error('message_send_failed')
       setDraft('')
@@ -205,7 +207,7 @@ export function DirectMessagesSection({ viewer, locale, onSignIn, initialMessage
             <article className="dm-person" key={person.id}>
               <a className="dm-person-link" href={`/u/${encodeURIComponent(person.username)}`}>
                 <Avatar avatarUrl={person.avatarUrl} name={person.displayName} />
-                <UserName userId={person.id} name={person.displayName} username={person.username} createdAt={person.accountCreatedAt} nameStyle={person.nameStyle} customTitle={person.customTitle} locale={locale} />
+                <UserName userId={person.id} name={person.displayName} username={person.username} isNewAccount={person.isNewAccount} nameStyle={person.nameStyle} customTitle={person.customTitle} locale={locale} />
               </a>
               <span className="dm-person-actions">
                 {person.followsYou && person.following ? <span className="dm-mutual"><Check aria-hidden="true" />{copy.mutual}</span> : person.following ? <span className="dm-follow-state">{copy.following}</span> : person.followsYou ? <span className="dm-follow-state">{copy.waiting}</span> : null}
@@ -223,7 +225,7 @@ export function DirectMessagesSection({ viewer, locale, onSignIn, initialMessage
           {conversations.length ? conversations.map((conversation) => (
             <button className={`dm-conversation ${activeConversationId === conversation.id ? 'dm-conversation-active' : ''}`} key={conversation.id} type="button" onClick={() => { setActivePeer(conversation.peer); setActiveConversationId(conversation.id); setError('') }}>
               <Avatar avatarUrl={conversation.peer.avatarUrl} name={conversation.peer.displayName} />
-              <span className="dm-conversation-copy"><UserName userId={conversation.peer.id} name={conversation.peer.displayName} username={conversation.peer.username} createdAt={conversation.peer.accountCreatedAt} nameStyle={conversation.peer.nameStyle} customTitle={conversation.peer.customTitle} locale={locale} /><small>{conversation.lastMessage ? <RichText text={conversation.lastMessage.body} /> : copy.mutualHint}</small></span>
+              <span className="dm-conversation-copy"><UserName userId={conversation.peer.id} name={conversation.peer.displayName} username={conversation.peer.username} isNewAccount={conversation.peer.isNewAccount} nameStyle={conversation.peer.nameStyle} customTitle={conversation.peer.customTitle} locale={locale} /><small>{conversation.lastMessage ? <RichText text={conversation.lastMessage.body} /> : copy.mutualHint}</small></span>
               <time>{formatTime(conversation.lastMessageAt, locale)}</time>
             </button>
           )) : <Empty className="dm-list-empty"><EmptyHeader><EmptyMedia variant="icon"><MessageCircle aria-hidden="true" /></EmptyMedia><EmptyTitle>{copy.conversations}</EmptyTitle><EmptyDescription>{copy.noConversations}</EmptyDescription></EmptyHeader></Empty>}
@@ -235,7 +237,7 @@ export function DirectMessagesSection({ viewer, locale, onSignIn, initialMessage
               <header className="dm-chat-header">
                 <Button className="dm-back-button" variant="ghost" size="icon" type="button" onClick={() => { setActiveConversationId(null); setActivePeer(null) }} aria-label={copy.back}><ArrowLeft /></Button>
                 <Avatar avatarUrl={activePeer.avatarUrl} name={activePeer.displayName} />
-                <UserName userId={activePeer.id} name={activePeer.displayName} username={activePeer.username} createdAt={activePeer.accountCreatedAt} nameStyle={activePeer.nameStyle} customTitle={activePeer.customTitle} locale={locale} />
+                <UserName userId={activePeer.id} name={activePeer.displayName} username={activePeer.username} isNewAccount={activePeer.isNewAccount} nameStyle={activePeer.nameStyle} customTitle={activePeer.customTitle} locale={locale} />
               </header>
               <MessageScrollerProvider autoScroll>
                 <MessageScroller className="dm-transcript" role="log" aria-label={`${copy.title} with ${activePeer.displayName}`} aria-live="polite" aria-relevant="additions text">
@@ -250,7 +252,7 @@ export function DirectMessagesSection({ viewer, locale, onSignIn, initialMessage
                               <Message align={own ? 'end' : 'start'}>
                                 {!own && <MessageAvatar><Avatar avatarUrl={activePeer.avatarUrl} name={activePeer.displayName} /></MessageAvatar>}
                                 <MessageContent>
-                                  {!own && <MessageHeader><UserName userId={activePeer.id} name={activePeer.displayName} username={activePeer.username} nameStyle={activePeer.nameStyle} customTitle={activePeer.customTitle} locale={locale} /></MessageHeader>}
+                                  {!own && <MessageHeader><UserName userId={activePeer.id} name={activePeer.displayName} username={activePeer.username} isNewAccount={activePeer.isNewAccount} nameStyle={activePeer.nameStyle} customTitle={activePeer.customTitle} locale={locale} /></MessageHeader>}
                                   <Bubble align={own ? 'end' : 'start'} variant={own ? 'tinted' : 'muted'}>
                                     <BubbleContent>{message.body && <RichText text={message.body} />}{message.mediaUrl && <img className="chat-attachment" src={message.mediaUrl} alt={copy.imageAlt} />}</BubbleContent>
                                   </Bubble>

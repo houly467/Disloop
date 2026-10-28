@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { disloopFollows, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
 import { getCurrentUser } from '@/lib/session'
+import { isNewAccount } from '@/lib/new-account'
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser()
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
       .orderBy(disloopUsers.displayName)
       .limit(20)
 
-    return NextResponse.json({ people: people.map((person) => ({ ...person, accountCreatedAt: person.accountCreatedAt.toISOString() })) }, { headers: { 'Cache-Control': 'private, no-store' } })
+    return NextResponse.json({ people: people.map((person) => ({ ...person, accountCreatedAt: person.accountCreatedAt.toISOString(), isNewAccount: isNewAccount(person.accountCreatedAt) })) }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     return NextResponse.json(apiFailurePayload('member_search_failed', error, '/api/dm/people'), { status: 500 })
   }
