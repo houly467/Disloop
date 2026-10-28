@@ -1,11 +1,11 @@
 'use client'
 
 import useSWR from 'swr'
-import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Component, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {   ArrowUpRight,
   BadgeCheck,
-  Ban, Bookmark, Eye, Check, Flag, Heart, Link2, MapPin, MessageCircle, MoreHorizontal, Pencil, Pin, Plus, Repeat2, Search, ShieldAlert, Upload, UserRound, Video, X } from 'lucide-react'
+  Ban, Bookmark, Eye, Check, ChevronDown, ChevronUp, Flag, Heart, Link2, MapPin, MessageCircle, MoreHorizontal, Pencil, Pin, Plus, Repeat2, Search, ShieldAlert, Upload, UserRound, Video, Volume2, VolumeX, X } from 'lucide-react'
 import type { CommunityReel } from '@/lib/reels'
 import type { NewsPost } from '@/lib/news'
 import type { CurrentUser } from '@/lib/session'
@@ -25,6 +25,8 @@ import { UserName } from '@/components/user-name'
 import { ReportDialog } from '@/components/report-dialog'
 import { countWords } from '@/lib/tags'
 import { ProfileTools } from '@/components/profile-tools'
+import { ProfileMusicPlayer } from '@/components/profile-music-player'
+import { getProfileMusicEmbedUrl } from '@/lib/profile-music'
 
 export type CommunityProfile = (CurrentUser & { nameStyle?: string | null; customTitle?: string | null; profileTheme?: string; profileLink?: string | null }) | PublicProfile
 
@@ -417,7 +419,9 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
       </div>
       {copyFailed && <p className="profile-copy-error" role="status">{labels.copyError}</p>}
       <ReportDialog open={reportOpen} onClose={() => setReportOpen(false)} targetType="user" targetId={profile.id} locale={locale} />
-      {profile.profileLink && <a className="profile-custom-link" href={profile.profileLink} target="_blank" rel="noopener noreferrer">{profile.profileLink}</a>}
+      {profile.profileLink && (getProfileMusicEmbedUrl(profile.profileLink)
+        ? !editable && <ProfileMusicPlayer url={profile.profileLink} locale={locale} />
+        : <a className="profile-custom-link" href={profile.profileLink} target="_blank" rel="noopener noreferrer">{profile.profileLink}</a>)}
       {editable && <ProfileTools locale={locale} />}
 
       {editing ? (
@@ -516,11 +520,91 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
 }
 
 const reelCopy = {
-  en: { title: 'Reels', description: 'Short videos, shared by the people who make this community.', empty: 'The next good thing starts here.', emptyBody: 'Share a short video with the community.', publish: 'Share a Reel', caption: 'Add a caption', file: 'Choose a video', fileHint: 'MP4 or WebM · up to 40 MB · up to 60 seconds', upload: 'Upload video', publishing: 'Publishing…', like: 'Like Reel', liked: 'Unlike Reel', signIn: 'Log in with Discord to share and react.', join: 'Join the Discord server to publish.', membershipUnavailable: 'Discord membership could not be checked. Please try again.', signInAgain: 'Your session expired. Please log in again.', uploadFailed: 'The video upload failed. Please try again.', invalid: 'Check your caption and try again.', tooManyTags: 'A Reel can include up to 10 hashtags.', tooLarge: 'Choose a video no larger than 40 MB.', tooLong: 'Videos can be up to 60 seconds.', retry: 'Retry', format: 'Choose an MP4 or WebM video.', failed: 'The Reel could not be published. Please try again.' },
-  ar: { title: 'ريلز', description: 'مقاطع قصيرة يشاركها أفراد المجتمع.', empty: 'ابدأ مشاركة شيء جميل.', emptyBody: 'شارك مقطعًا قصيرًا مع المجتمع.', publish: 'مشاركة ريل', caption: 'أضف تعليقًا', file: 'اختر مقطعًا', fileHint: 'MP4 أو WebM · حتى 40 ميغابايت · حتى ٦٠ ثانية', upload: 'رفع المقطع', publishing: 'جارٍ النشر…', like: 'إعجاب', liked: 'إلغاء الإع��اب', signIn: 'سجّل الدخول عبر Discord للمشاركة والتفاعل.', join: 'انضم إلى سيرفر Discord للنشر.', membershipUnavailable: 'تعذر التحقق من عضويتك في Discord. حاول مرة أخرى.', signInAgain: 'انتهت جلستك. سجّل الدخول مرة أخرى.', uploadFailed: 'تعذر رفع الفيديو. حاول مرة أخرى.', invalid: 'تحقق من التعليق ثم حاول مرة أخرى.', tooManyTags: 'يمكن أن يحتوي الريل على 10 وسوم كحد أقصى.', tooLarge: 'اختر مقطعًا لا يتجاوز 40 ميغابايت.', tooLong: 'يجب ألا يتجاوز الفيديو ٦٠ ثانية.', retry: 'إعادة المحاولة', format: 'اختر مقطع MP4 أو WebM.', failed: 'تعذر نشر المقطع. حاول مرة أخرى.' },
+  en: { title: 'Reels', description: 'Short videos, shared by the people who make this community.', empty: 'The next good thing starts here.', emptyBody: 'Share a short video with the community.', publish: 'New reel', caption: 'Add a caption', file: 'Choose a video', fileHint: 'MP4 or WebM · up to 40 MB · up to 60 seconds', upload: 'Upload video', publishing: 'Publishing…', like: 'Like Reel', liked: 'Unlike Reel', signIn: 'Log in with Discord to share and react.', join: 'Join the Discord server to publish.', membershipUnavailable: 'Discord membership could not be checked. Please try again.', signInAgain: 'Your session expired. Please log in again.', uploadFailed: 'The video upload failed. Please try again.', invalid: 'Check your caption and try again.', tooManyTags: 'A Reel can include up to 10 hashtags.', tooLarge: 'Choose a video no larger than 40 MB.', tooLong: 'Videos can be up to 60 seconds.', retry: 'Retry', format: 'Choose an MP4 or WebM video.', failed: 'The Reel could not be published. Please try again.', more: 'more', less: 'less', follow: 'Follow', following: 'Following', mute: 'Mute video', unmute: 'Unmute video', speed: 'Playback speed', reload: 'Reload reels', loadError: 'Reels could not load.', previousReel: 'Previous reel', nextReel: 'Next reel', loadingMore: 'Loading more reels…' },
+  ar: { title: 'ريلز', description: 'مقاطع قصيرة يشاركها أفراد المجتمع.', empty: 'ابدأ مشاركة شيء جميل.', emptyBody: 'شارك مقطعًا قصيرًا مع المجتمع.', publish: 'ريل جديد', caption: 'أضف تعليقًا', file: 'اختر مقطعًا', fileHint: 'MP4 أو WebM · حتى 40 ميغابايت · حتى ٦٠ ثانية', upload: 'رفع المقطع', publishing: 'جارٍ النشر…', like: 'إعجاب', liked: 'إلغاء الإعجاب', signIn: 'سجّل الدخول عبر Discord للمشاركة والتفاعل.', join: 'انضم إلى سيرفر Discord للنشر.', membershipUnavailable: 'تعذر التحقق من عضويتك في Discord. حاول مرة أخرى.', signInAgain: 'انتهت جلستك. سجّل الدخول مرة أخرى.', uploadFailed: 'تعذر رفع الفيديو. حاول مرة أخرى.', invalid: 'تحقق من التعليق ثم حاول مرة أخرى.', tooManyTags: 'يمكن أن يحتوي الريل على 10 وسوم كحد أقصى.', tooLarge: 'اختر مقطعًا لا يتجاوز 40 ميغابايت.', tooLong: 'يجب ألا يتجاوز الفيديو ٦٠ ثانية.', retry: 'إعادة المحاولة', format: 'اختر مقطع MP4 أو WebM.', failed: 'تعذر نشر المقطع. حاول مرة أخرى.', more: 'المزيد', less: 'أقل', follow: 'متابعة', following: 'تتابعه', mute: 'كتم الفيديو', unmute: 'تشغيل الصوت', speed: 'سرعة التشغيل', reload: 'إعادة تحميل الريلز', loadError: 'تعذر تحميل الريلز.', previousReel: 'الريل السابق', nextReel: 'الريل التالي', loadingMore: 'جارٍ تحميل المزيد من الريلز…' },
 } satisfies Record<Locale, Record<string, string>>
 
-export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateContent, onMembershipRequired, onReelPublished }: {
+export function getActiveReelIndex(intersectionRatios: number[], threshold = 0.6): number {
+  let activeIndex = -1
+  let highestRatio = threshold
+  intersectionRatios.forEach((ratio, index) => {
+    if (Number.isFinite(ratio) && ratio >= highestRatio) {
+      activeIndex = index
+      highestRatio = ratio
+    }
+  })
+  return activeIndex
+}
+
+export function getReelProgress(video: HTMLVideoElement | null): number {
+  if (!video || !video.isConnected) return 0
+  const { duration, currentTime } = video
+  if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(currentTime)) return 0
+  return Math.min(100, Math.max(0, currentTime / duration * 100))
+}
+
+export function applyReelAudioPreference(video: HTMLVideoElement | null, isMuted: boolean): boolean {
+  if (!video || !video.isConnected) return false
+  if (!isMuted) video.volume = 1
+  video.muted = isMuted
+  return true
+}
+
+export function unmuteReelVideo(video: HTMLVideoElement | null): Promise<boolean> {
+  if (!video || !video.isConnected) return Promise.resolve(false)
+  video.volume = 1
+  video.muted = false
+  return video.play().then(() => true).catch(() => {
+    if (!video.isConnected) return false
+    video.muted = true
+    return video.play().then(() => false).catch(() => false)
+  })
+}
+
+class ReelsErrorBoundary extends Component<{ children: ReactNode; locale: Locale }, { hasError: boolean }> {
+  state = { hasError: false }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error: Error, _info: ErrorInfo) {
+    console.error('[reels] viewer render failed', error)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      const labels = reelCopy[this.props.locale]
+      return <div className="reels-load-error" role="alert"><span>{labels.loadError}</span><button type="button" onClick={() => this.setState({ hasError: false })}>{labels.reload}</button></div>
+    }
+    return this.props.children
+  }
+}
+
+function ReelFollowButton({ authorId, viewer, labels }: {
+  authorId: string
+  viewer: CurrentUser | null
+  labels: { follow: string; following: string }
+}) {
+  const key = viewer && viewer.id !== authorId ? `/api/dm/follows/${encodeURIComponent(authorId)}` : null
+  const { data, mutate } = useSWR<{ following: boolean; followsYou: boolean }>(key, fetchFollowStatus)
+  if (!key || !data) return null
+  async function toggleFollow() {
+    if (!key || !data) return
+    const following = !data.following
+    await mutate({ ...data, following }, false)
+    try {
+      const response = await fetch(key, { method: following ? 'POST' : 'DELETE' })
+      if (!response.ok) throw new Error('follow_update_failed')
+    } catch (error) {
+      console.error('[social-follows] Reel follow toggle failed', { authorId, error })
+      await mutate({ ...data, following: !following }, false)
+    }
+  }
+  return <button className="reel-follow-button" type="button" aria-pressed={data.following} onClick={() => void toggleFollow()}>{data.following ? labels.following : labels.follow}</button>
+}
+
+function ReelsSectionContent({ locale, viewer, initialReels, onSignIn, onCreateContent, onMembershipRequired, onReelPublished }: {
   locale: Locale
   viewer: CurrentUser | null
   initialReels: CommunityReel[]
@@ -531,6 +615,10 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
 }) {
   const labels = reelCopy[locale]
   const [reels, setReels] = useState(initialReels)
+  const [activeReelIndex, setActiveReelIndex] = useState(0)
+  const [loadingMoreReels, setLoadingMoreReels] = useState(false)
+  const [hasMoreReels, setHasMoreReels] = useState(initialReels.length >= 30)
+  const [loadMoreError, setLoadMoreError] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [caption, setCaption] = useState('')
   const [progress, setProgress] = useState(0)
@@ -539,26 +627,263 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
   const [bookmarkError, setBookmarkError] = useState('')
   const [composerOpen, setComposerOpen] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
-  const [likedReelIds, setLikedReelIds] = useState<Set<string>>(() => new Set())
+  const [isMuted, setIsMuted] = useState(true)
+  const [expandedCaptions, setExpandedCaptions] = useState<Set<string>>(() => new Set())
+  const [likeAnimationId, setLikeAnimationId] = useState<string | null>(null)
+  const [videoProgress, setVideoProgress] = useState<Record<string, number>>({})
+  const [activeReelId, setActiveReelId] = useState<string | null>(null)
+  const feedRef = useRef<HTMLDivElement>(null)
+  const activeVideoRef = useRef<HTMLVideoElement | null>(null)
+  const videoRefCallbacks = useRef(new Map<string, (video: HTMLVideoElement | null) => void>())
+  const isMutedRef = useRef(true)
+  const playbackRateRef = useRef(1)
+  const playbackToggleTimerRef = useRef<number | null>(null)
+  const loadingMoreRef = useRef(false)
   const reelBookmarkKey = viewer ? `/api/social/bookmarks?contentType=reel&ids=${reels.map((reel) => reel.id).join(',')}` : null
   const { data: savedReels, mutate: mutateSavedReels } = useSWR<{ savedIds: string[]; available: boolean }>(reelBookmarkKey, async (url: string) => {
     const response = await fetch(url, { cache: 'no-store' })
     if (!response.ok) throw new Error('bookmarks_failed')
     return response.json()
   })
-  const visibleReels = reels.filter((reel) => !likedReelIds.has(reel.id))
+  const visibleReels = reels
+
+  useEffect(() => {
+    setReels((current) => {
+      const currentIds = new Set(current.map((reel) => reel.id))
+      const additions = initialReels.filter((reel) => !currentIds.has(reel.id))
+      return additions.length ? [...current, ...additions] : current
+    })
+  }, [initialReels])
 
   useEffect(() => {
     const storedRate = Number(window.localStorage.getItem('disloop-reel-playback-rate'))
     if ([0.5, 1, 1.5, 2].includes(storedRate)) setPlaybackRate(storedRate)
+    try {
+      const storedMutePreference = window.localStorage.getItem('disloop-reel-muted')
+      if (storedMutePreference === 'true' || storedMutePreference === 'false') {
+        const storedIsMuted = storedMutePreference === 'true'
+        isMutedRef.current = storedIsMuted
+        setIsMuted(storedIsMuted)
+      }
+    } catch (error) {
+      console.warn('[reels] Could not restore audio preference from local storage.', error)
+    }
   }, [])
 
   useEffect(() => {
-    document.querySelectorAll<HTMLVideoElement>('.reels-section .reel-video').forEach((video) => {
-      video.playbackRate = playbackRate
-    })
+    playbackRateRef.current = playbackRate
+  }, [playbackRate])
+
+  useEffect(() => () => {
+    if (playbackToggleTimerRef.current !== null) window.clearTimeout(playbackToggleTimerRef.current)
+  }, [])
+
+  function getVideoRef(reelId: string) {
+    let callback = videoRefCallbacks.current.get(reelId)
+    if (!callback) {
+      callback = (video) => {
+        if (video) {
+          applyReelAudioPreference(video, isMutedRef.current)
+          if (!isMutedRef.current) video.volume = 1
+        } else {
+          if (activeVideoRef.current?.dataset.reelId === reelId) activeVideoRef.current = null
+        }
+      }
+      videoRefCallbacks.current.set(reelId, callback)
+    }
+    return callback
+  }
+
+  function persistMutePreference(value: boolean) {
+    isMutedRef.current = value
+    setIsMuted(value)
+    try {
+      window.localStorage.setItem('disloop-reel-muted', String(value))
+    } catch (error) {
+      console.warn('[reels] Could not save audio preference to local storage.', error)
+    }
+  }
+
+  useEffect(() => {
     window.localStorage.setItem('disloop-reel-playback-rate', String(playbackRate))
   }, [playbackRate, visibleReels])
+
+  useEffect(() => {
+    const feed = feedRef.current
+    if (!feed) return
+    const observedRatios = new Map<Element, number>()
+    const videos = Array.from(feed.querySelectorAll<HTMLVideoElement>('video'))
+    const updateMutePreference = (video: HTMLVideoElement, value: boolean) => {
+      if (activeVideoRef.current === video) persistMutePreference(value)
+    }
+    const volumeChangeHandlers = new Map<HTMLVideoElement, () => void>()
+    for (const video of videos) {
+      const handleVolumeChange = () => {
+        if (activeVideoRef.current === video && video.isConnected) updateMutePreference(video, video.muted)
+      }
+      volumeChangeHandlers.set(video, handleVolumeChange)
+      video.addEventListener('volumechange', handleVolumeChange)
+    }
+    const slides = Array.from(feed.querySelectorAll<HTMLElement>('.reel-slide'))
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        observedRatios.set(entry.target, entry.isIntersecting ? entry.intersectionRatio : 0)
+      }
+      const activeIndex = getActiveReelIndex(slides.map((slide) => observedRatios.get(slide) ?? 0))
+      setActiveReelIndex(activeIndex < 0 ? 0 : activeIndex)
+      const activeSlide = activeIndex < 0 ? null : slides[activeIndex]
+      const activeVideo = activeSlide?.querySelector<HTMLVideoElement>('video') ?? null
+      if (activeVideo && activeVideo.isConnected) {
+        activeVideoRef.current = activeVideo
+        setActiveReelId(activeVideo.dataset.reelId ?? null)
+      } else {
+        activeVideoRef.current = null
+        setActiveReelId(null)
+      }
+      for (const video of videos) {
+        if (!video.isConnected) continue
+        if (video === activeVideo) {
+          video.playbackRate = playbackRateRef.current
+          applyReelAudioPreference(video, isMutedRef.current)
+          void video.play().then(() => {
+            if (activeVideoRef.current !== video && video.isConnected) {
+              video.pause()
+              video.muted = true
+            }
+          }).catch(() => {
+            if (activeVideoRef.current !== video || !video.isConnected) return
+            video.muted = true
+            updateMutePreference(video, true)
+            void video.play().catch(() => undefined)
+          })
+        } else {
+          video.pause()
+          video.muted = true
+        }
+      }
+    }, { root: feed, threshold: [0, 0.6, 1] })
+    slides.forEach((slide) => observer.observe(slide))
+    return () => {
+      observer.disconnect()
+      for (const [video, handler] of volumeChangeHandlers) video.removeEventListener('volumechange', handler)
+      for (const video of videos) {
+        video.pause()
+        video.muted = true
+      }
+      if (activeVideoRef.current && videos.includes(activeVideoRef.current)) activeVideoRef.current = null
+    }
+  }, [visibleReels])
+
+  useEffect(() => {
+    if (hasMoreReels && activeReelIndex >= Math.max(0, reels.length - 2)) void loadMoreReels()
+  }, [activeReelIndex, hasMoreReels, reels.length])
+
+  useEffect(() => {
+    setVideoProgress((current) => activeReelId ? { ...current, [activeReelId]: 0 } : {})
+    const video = activeVideoRef.current
+    if (!activeReelId || !video || !video.isConnected) return
+
+    const updateProgress = () => {
+      if (!video.isConnected) return
+      const progressValue = getReelProgress(video)
+      setVideoProgress((current) => ({ ...current, [activeReelId]: progressValue }))
+    }
+    video.addEventListener('timeupdate', updateProgress)
+    video.addEventListener('loadedmetadata', updateProgress)
+    video.addEventListener('durationchange', updateProgress)
+    updateProgress()
+
+    return () => {
+      video.removeEventListener('timeupdate', updateProgress)
+      video.removeEventListener('loadedmetadata', updateProgress)
+      video.removeEventListener('durationchange', updateProgress)
+      if (activeVideoRef.current === video) activeVideoRef.current = null
+    }
+  }, [activeReelId])
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setLikeAnimationId(null), 750)
+    return () => window.clearTimeout(timeout)
+  }, [likeAnimationId])
+
+  function navigateReels(direction: -1 | 1) {
+    const feed = feedRef.current
+    if (!feed || visibleReels.length === 0) return
+    const nextIndex = Math.max(0, Math.min(visibleReels.length - 1, activeReelIndex + direction))
+    feed.scrollTo({ top: nextIndex * feed.clientHeight, behavior: 'smooth' })
+  }
+
+  function handleReelKeyboard(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    const target = event.target
+    if (target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName))) return
+    event.preventDefault()
+    navigateReels(event.key === 'ArrowDown' ? 1 : -1)
+  }
+
+  async function loadMoreReels() {
+    if (!hasMoreReels || loadingMoreRef.current) return
+    loadingMoreRef.current = true
+    setLoadingMoreReels(true)
+    setLoadMoreError(false)
+    try {
+      const response = await fetch('/api/reels', { cache: 'no-store' })
+      if (!response.ok) throw new Error('reels_page_failed')
+      const result = await response.json() as { reels?: CommunityReel[] }
+      const page = result.reels ?? []
+      const knownIds = new Set(reels.map((reel) => reel.id))
+      const additions = page.filter((reel) => !knownIds.has(reel.id))
+      if (additions.length === 0) setHasMoreReels(false)
+      setReels((current) => {
+        const currentIds = new Set(current.map((reel) => reel.id))
+        const unseen = additions.filter((reel) => !currentIds.has(reel.id))
+        return unseen.length ? [...current, ...unseen] : current
+      })
+    } catch (error) {
+      console.error('[reels] Could not load more reels.', error)
+      setLoadMoreError(true)
+    } finally {
+      loadingMoreRef.current = false
+      setLoadingMoreReels(false)
+    }
+  }
+
+  function changePlaybackRate(value: number) {
+    if (![0.5, 1, 1.5, 2].includes(value)) return
+    const video = activeVideoRef.current
+    if (video?.isConnected) video.playbackRate = value
+    playbackRateRef.current = value
+    setPlaybackRate(value)
+  }
+
+  function toggleMute() {
+    const video = activeVideoRef.current
+    if (!video || !video.isConnected) return
+    if (video.muted) {
+      persistMutePreference(false)
+      void unmuteReelVideo(video).then((audioEnabled) => {
+        if (activeVideoRef.current === video) persistMutePreference(!audioEnabled)
+      })
+      return
+    }
+    video.muted = true
+    persistMutePreference(true)
+  }
+
+  function toggleVideoPlayback(video: HTMLVideoElement | null) {
+    if (!video || !video.isConnected || activeVideoRef.current !== video) return
+    if (playbackToggleTimerRef.current !== null) window.clearTimeout(playbackToggleTimerRef.current)
+    playbackToggleTimerRef.current = window.setTimeout(() => {
+      if (!video.isConnected) return
+      if (video.paused) {
+        video.muted = isMutedRef.current
+        void video.play().catch(() => undefined)
+      } else {
+        video.pause()
+      }
+      playbackToggleTimerRef.current = null
+    }, 220)
+  }
 
   async function toggleReelBookmark(reelId: string) {
     if (!viewer) return onSignIn()
@@ -641,13 +966,10 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
 
   return (
     <section className="section-view reels-section" aria-labelledby="reels-title">
-      <div className="section-heading reels-heading"><div><span className="section-kicker"><Video aria-hidden="true" />{labels.title}</span><h1 id="reels-title">{labels.title}</h1><p>{labels.description}</p></div></div>
-      <div className="reel-creation-bar" aria-label={labels.publish}>
-        <span>{locale === 'ar' ? 'شارك مقطعًا مع المجتمع' : 'Create and share a video with the community'}</span>
-        <label className="reel-speed-control">{locale === 'ar' ? 'سرعة التشغيل' : 'Playback speed'} <select aria-label={locale === 'ar' ? 'سرعة تشغيل الريلز' : 'Reel playback speed'} value={playbackRate} onChange={(event) => setPlaybackRate(Number(event.target.value))}><option value={0.5}>0.5×</option><option value={1}>1×</option><option value={1.5}>1.5×</option><option value={2}>2×</option></select></label>
+      <div className="section-heading reels-heading"><div><span className="section-kicker"><Video aria-hidden="true" />{labels.title}</span><h1 id="reels-title">{labels.title}</h1></div>
         {viewer
           ? <button className="section-primary-button reel-compose-trigger" type="button" onClick={() => void openComposer()}><Plus aria-hidden="true" />{labels.publish}</button>
-          : <button className="section-primary-button reel-compose-trigger" type="button" onClick={onSignIn}>{labels.signIn}<ArrowUpRight aria-hidden="true" /></button>}
+          : <button className="section-primary-button reel-compose-trigger" type="button" onClick={onSignIn}><Plus aria-hidden="true" />{labels.publish}</button>}
       </div>
       {bookmarkError && <p className="profile-action-error" role="alert">{bookmarkError}</p>}
       {composerOpen && <ModalPortal backdropClassName="social-composer-modal-backdrop" dialogClassName="social-composer-modal reel-composer-modal" labelId="reel-composer-title" onClose={() => { if (!publishing) setComposerOpen(false) }}>
@@ -660,18 +982,35 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
           {error && <div className="form-error" role="alert"><p>{error}</p><button type="button" className="section-secondary-button" disabled={publishing} onClick={() => document.querySelector<HTMLFormElement>('.reel-composer')?.requestSubmit()}>{labels.retry}</button></div>}
         </form>
       </ModalPortal>}
-      {visibleReels.length ? <div className="reel-feed" role="region" aria-label={labels.title} tabIndex={0}><div className="reel-list">{visibleReels.map((reel) => <article className="reel-card reel-slide" id={`reel-${reel.id}`} key={reel.id}>
+      {visibleReels.length ? <div className="reel-feed-shell" onKeyDown={handleReelKeyboard}>
+        <button className="reel-navigation-button reel-navigation-up" type="button" aria-label={labels.previousReel} disabled={activeReelIndex <= 0} onClick={() => navigateReels(-1)}><ChevronUp aria-hidden="true" /></button>
+        <div className="reel-feed" ref={feedRef} role="region" aria-label={labels.title} tabIndex={0}><div className="reel-list">{visibleReels.map((reel) => <article className="reel-card reel-slide" id={`reel-${reel.id}`} data-reel-id={reel.id} key={reel.id}>
         <div className="reel-stage">
-        <video className="reel-video" controls playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.title} onPlay={() => { if (viewer) void fetch(`/api/reels/${encodeURIComponent(reel.id)}/view`, { method: 'POST' }).catch(() => undefined) }} />
-        <div className="reel-card-content"><div className="reel-author"><span>{reel.authorAvatar ? <img src={reel.authorAvatar} alt="" /> : <UserRound aria-hidden="true" />}</span><a href={`/u/${encodeURIComponent(reel.authorUsername)}`}><UserName userId={reel.authorId} name={reel.authorName} username={reel.authorUsername} createdAt={reel.authorCreatedAt} nameStyle={reel.authorNameStyle} customTitle={reel.authorCustomTitle} locale={locale} /></a><button type="button" className={`reel-bookmark-button ${savedReels?.savedIds.includes(reel.id) ? 'reel-bookmark-saved' : ''}`} aria-label={locale === 'ar' ? 'حفظ الريل' : 'Save Reel'} onClick={() => void toggleReelBookmark(reel.id)}>{savedReels?.savedIds.includes(reel.id) ? <Check aria-hidden="true" /> : <Bookmark aria-hidden="true" />}</button></div>
-          {reel.caption && <p><RichText text={reel.caption} /></p>}
-          {reel.tags.length > 0 && <div className="tag-row">{reel.tags.map((tag) => <a className="post-tag" key={tag} href={`/tags/${encodeURIComponent(tag)}?lang=${locale}`}>#{tag}</a>)}</div>}
+        <video ref={getVideoRef(reel.id)} data-reel-id={reel.id} className="reel-video" playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.title} onClick={(event) => toggleVideoPlayback(event.currentTarget)} onDoubleClick={(event) => { event.preventDefault(); const video = event.currentTarget; if (!video || !video.isConnected || activeVideoRef.current !== video) return; if (playbackToggleTimerRef.current !== null) window.clearTimeout(playbackToggleTimerRef.current); playbackToggleTimerRef.current = null; const likeButton = video.closest('.reel-slide')?.querySelector<HTMLButtonElement>('[data-reel-like-button]'); likeButton?.click(); setLikeAnimationId(null); window.requestAnimationFrame(() => setLikeAnimationId(reel.id)) }} onPlay={() => { if (viewer) void fetch(`/api/reels/${encodeURIComponent(reel.id)}/view`, { method: 'POST' }).catch(() => undefined) }} />
+        <div className="reel-video-controls">
+          <label className="reel-speed-pill"><span>{labels.speed}</span><select aria-label={labels.speed} value={playbackRate} onChange={(event) => changePlaybackRate(Number(event.target.value))}><option value={0.5}>0.5×</option><option value={1}>1×</option><option value={1.5}>1.5×</option><option value={2}>2×</option></select></label>
+          <button type="button" className="reel-mute-button" aria-label={isMuted ? labels.unmute : labels.mute} title={isMuted ? labels.unmute : labels.mute} onClick={toggleMute}>{isMuted ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}</button>
         </div>
-        <PostEngagement type="reel" contentId={reel.id} authorId={reel.authorId} viewer={viewer} locale={locale} onSignIn={onSignIn} variant="reel" onLikeChange={(liked) => setLikedReelIds((current) => { const next = new Set(current); if (liked) next.add(reel.id); else next.delete(reel.id); return next })} />
+        {likeAnimationId === reel.id && <Heart className="reel-double-tap-heart" aria-hidden="true" />}
+        <div className="reel-card-content">
+          <div className="reel-author"><span>{reel.authorAvatar ? <img src={reel.authorAvatar} alt="" /> : <UserRound aria-hidden="true" />}</span><a href={`/u/${encodeURIComponent(reel.authorUsername)}`}><UserName userId={reel.authorId} name={reel.authorName} username={reel.authorUsername} createdAt={reel.authorCreatedAt} nameStyle={reel.authorNameStyle} customTitle={reel.authorCustomTitle} locale={locale} /></a><ReelFollowButton authorId={reel.authorId} viewer={viewer} labels={labels} /></div>
+          {reel.caption && <div className="reel-caption-wrap"><p className={expandedCaptions.has(reel.id) ? '' : 'reel-caption-clamped'}><RichText text={reel.caption} /></p>{reel.caption.length > 100 && <button className="reel-caption-more" type="button" onClick={() => setExpandedCaptions((current) => { const next = new Set(current); if (next.has(reel.id)) next.delete(reel.id); else next.add(reel.id); return next })}>{expandedCaptions.has(reel.id) ? labels.less : labels.more}</button>}</div>}
+          {reel.tags.length > 0 && <div className="tag-row reel-tag-row">{reel.tags.map((tag) => <a className="post-tag" key={tag} href={`/tags/${encodeURIComponent(tag)}?lang=${locale}`}>#{tag}</a>)}</div>}
         </div>
-      </article>)}</div></div> : <div className="section-empty reels-empty"><span className="section-empty-icon"><Video aria-hidden="true" /></span><h2>{labels.empty}</h2><p>{labels.emptyBody}</p></div>}
+        <div className="reel-progress-track" aria-hidden="true"><span style={{ width: `${activeReelId === reel.id ? videoProgress[reel.id] ?? 0 : 0}%` }} /></div>
+        </div>
+        <PostEngagement type="reel" contentId={reel.id} authorId={reel.authorId} viewer={viewer} locale={locale} onSignIn={onSignIn} variant="reel" extraAction={<button type="button" className={`post-engagement-action reel-save-action ${savedReels?.savedIds.includes(reel.id) ? 'reel-save-active' : ''}`} aria-label={locale === 'ar' ? 'حفظ الريل' : 'Save Reel'} aria-pressed={savedReels?.savedIds.includes(reel.id) ?? false} onClick={() => void toggleReelBookmark(reel.id)}>{savedReels?.savedIds.includes(reel.id) ? <Check aria-hidden="true" /> : <Bookmark aria-hidden="true" />}<span>{locale === 'ar' ? 'حفظ' : 'Save'}</span></button>} onBlock={() => setReels((current) => current.filter((item) => item.authorId !== reel.authorId))} />
+      </article>)}</div>
+        {(loadingMoreReels || loadMoreError) && <div className="reel-load-more" role={loadMoreError ? 'alert' : 'status'}>{loadingMoreReels ? labels.loadingMore : <button type="button" onClick={() => void loadMoreReels()}>{labels.retry}</button>}</div>}
+        </div>
+        <button className="reel-navigation-button reel-navigation-down" type="button" aria-label={labels.nextReel} disabled={activeReelIndex >= visibleReels.length - 1} onClick={() => navigateReels(1)}><ChevronDown aria-hidden="true" /></button>
+      </div> : <div className="section-empty reels-empty"><span className="section-empty-icon"><Video aria-hidden="true" /></span><h2>{labels.empty}</h2><p>{labels.emptyBody}</p></div>}
     </section>
   )
+}
+
+export function ReelsSection(props: React.ComponentProps<typeof ReelsSectionContent>) {
+  return <ReelsErrorBoundary locale={props.locale}><ReelsSectionContent {...props} /></ReelsErrorBoundary>
 }
 
 type SearchResults = {

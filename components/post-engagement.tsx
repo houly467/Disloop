@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import useSWR from 'swr'
-import { MessageCircle, Repeat2, Send, ChevronDown, X, Pin, Share2, Copy, MoreHorizontal } from 'lucide-react'
+import { Heart, MessageCircle, Repeat2, Send, ChevronDown, X, Pin, Share2, Copy, MoreHorizontal, Ban } from 'lucide-react'
 import { MentionTextarea, RichText } from '@/components/mention-textarea'
 import { ModalPortal } from '@/components/modal-portal'
 import type { CurrentUser } from '@/lib/session'
@@ -50,7 +50,7 @@ function formatDate(value: string, locale: Locale) {
   return new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
-export function PostEngagement({ type, contentId, authorId, viewer, locale, onSignIn, variant, onLikeChange }: {
+export function PostEngagement({ type, contentId, authorId, viewer, locale, onSignIn, variant, onLikeChange, extraAction, onBlock }: {
   type: ContentType
   contentId: string
   authorId: string
@@ -59,6 +59,8 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
   onSignIn: () => void
   variant?: 'default' | 'reel'
   onLikeChange?: (liked: boolean) => void
+  extraAction?: ReactNode
+  onBlock?: () => void
 }) {
   const copy = labels[locale]
   const [commentsOpen, setCommentsOpen] = useState(false)
@@ -80,6 +82,7 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
   const [moreOpen, setMoreOpen] = useState(false)
   const [followStatuses, setFollowStatuses] = useState<Record<string, boolean>>({})
   const [followBusy, setFollowBusy] = useState<string | null>(null)
+  const [blockBusy, setBlockBusy] = useState(false)
   const commentsKey = `/api/social/comments?type=${type}&id=${contentId}`
   const { data: commentData, error: commentLoadError, mutate: mutateComments } = useSWR<CommentResponse>(commentsKey, fetchJson, { refreshInterval: 30000 })
   const repostKey = `/api/social/reposts?type=${type}&id=${contentId}`
@@ -145,6 +148,26 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
       setError(locale === 'ar' ? 'تعذر تحديث الإعجاب.' : 'Could not update your like.')
     } finally {
       setBusy(false)
+    }
+
+  }
+
+  async function blockAuthor() {
+    if (!viewer || viewer.id === authorId || blockBusy) return
+    const confirmed = window.confirm(locale === 'ar' ? 'هل تريد حظر هذا العضو؟' : 'Block this member?')
+    if (!confirmed) return
+    setBlockBusy(true)
+    setError('')
+    try {
+      const response = await fetch(`/api/social/blocks?userId=${encodeURIComponent(authorId)}`, { method: 'POST' })
+      if (!response.ok) throw new Error('block_failed')
+      setMoreOpen(false)
+      onBlock?.()
+    } catch (caught) {
+      console.error('[social-blocks] Reel author block failed', { userId: authorId, error: caught })
+      setError(locale === 'ar' ? 'تعذر حظر هذا العضو.' : 'Could not block this member.')
+    } finally {
+      setBlockBusy(false)
     }
   }
 
@@ -304,7 +327,7 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
     <section className={`post-engagement ${variant === 'reel' ? 'post-engagement-reel' : ''}`} aria-label={copy.comments}>
       <div className="post-engagement-actions">
         <div className="post-reaction-control">
-          {(viewer?.id !== authorId || variant === 'reel') && <button className={`post-engagement-action ${likeData?.likedByMe ? 'post-engagement-action-liked' : ''} ${likePulse ? 'post-engagement-action-pulse' : ''}`} type="button" aria-pressed={likeData?.likedByMe ?? false} onClick={() => void toggleLike()}><span className="post-like-emoji" aria-hidden="true">👍</span><span>{locale === 'ar' ? 'إعجاب' : 'Like'}</span></button>}
+          {(viewer?.id !== authorId || variant === 'reel') && <button data-reel-like-button={variant === 'reel' ? '' : undefined} aria-label={locale === 'ar' ? 'إعجاب' : 'Like'} className={`post-engagement-action ${likeData?.likedByMe ? 'post-engagement-action-liked' : ''} ${likePulse ? 'post-engagement-action-pulse' : ''}`} type="button" aria-pressed={likeData?.likedByMe ?? false} onClick={() => void toggleLike()}><Heart className="post-like-heart" aria-hidden="true" /><span>{locale === 'ar' ? 'إعجاب' : 'Like'}</span></button>}
           <button className={`post-reaction-count ${(likeData?.count ?? 0) === 0 ? 'post-reaction-count-zero' : ''}`} type="button" onClick={() => openReactions('likes')} aria-label={locale === 'ar' ? `عرض ${likeData?.count ?? 0} إعجابات` : `View ${likeData?.count ?? 0} likes`}>{formatSocialCount(likeData?.count ?? 0, locale)}</button>
         </div>
         <button className="post-engagement-action post-comment-action" type="button" aria-expanded={commentsOpen} onClick={() => setCommentsOpen((open) => !open)}><MessageCircle aria-hidden="true" /><span>{locale === 'ar' ? 'تعليق' : 'Comment'}</span><strong className={comments.length === 0 ? 'post-reaction-count-zero' : ''}>{formatSocialCount(comments.length, locale)}</strong></button>
@@ -312,10 +335,11 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
           {viewer?.id !== authorId && <button className={`post-engagement-action ${repostData?.repostedByMe ? 'post-engagement-action-reposted' : ''} ${repostPulse ? 'post-engagement-action-pulse' : ''}`} type="button" aria-pressed={repostData?.repostedByMe ?? false} onClick={() => void toggleRepost()}><Repeat2 aria-hidden="true" /><span>{repostData?.repostedByMe ? copy.reposted : copy.repost}</span></button>}
           <button className={`post-reaction-count ${(repostData?.count ?? 0) === 0 ? 'post-reaction-count-zero' : ''}`} type="button" onClick={() => openReactions('reposts')} aria-label={locale === 'ar' ? `عرض ${repostData?.count ?? 0} إعادة نشر` : `View ${repostData?.count ?? 0} reposts`}>{formatSocialCount(repostData?.count ?? 0, locale)}</button>
         </div>
+        {variant === 'reel' && extraAction}
         {variant === 'reel' && viewer && <button className="post-engagement-action" type="button" onClick={() => { setShareOpen(true); setShareError(''); setShareSentTo(null); setShareQuery('') }}><Share2 aria-hidden="true" /><span>{locale === 'ar' ? 'إرسال' : 'Share to DM'}</span></button>}
         {variant === 'reel' && <button className="post-engagement-action" type="button" onClick={() => void copyReelLink()}><Copy aria-hidden="true" /><span>{locale === 'ar' ? 'نسخ الرابط' : 'Copy link'}</span></button>}
         {variant === 'reel' && viewer && viewer.id !== authorId && <button className="post-engagement-action" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><MoreHorizontal aria-hidden="true" /><span>{locale === 'ar' ? 'المزيد' : 'More'}</span></button>}
-        {variant === 'reel' && moreOpen && viewer && <div className="reel-more-menu"><ReportButton targetType={type} targetId={contentId} locale={locale} className="post-engagement-action post-report-button" /></div>}
+        {variant === 'reel' && moreOpen && viewer && <div className="reel-more-menu"><ReportButton targetType={type} targetId={contentId} locale={locale} className="post-engagement-action post-report-button" /><button className="post-engagement-action post-block-button" type="button" disabled={blockBusy} onClick={() => void blockAuthor()}><Ban aria-hidden="true" /><span>{locale === 'ar' ? 'حظر' : 'Block'}</span></button></div>}
         {variant !== 'reel' && viewer && viewer.id !== authorId && <ReportButton targetType={type} targetId={contentId} locale={locale} className="post-engagement-action post-report-button" />}
       </div>
       {error && <p className="social-error" role="alert">{error}</p>}
