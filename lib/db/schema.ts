@@ -58,6 +58,12 @@ export const disloopUsers = pgTable(
   ],
 )
 
+export const disloopUsernameHistory = pgTable('disloop_username_history', {
+  usernameLower: varchar('username_lower', { length: 20 }).primaryKey(),
+  userId: uuid('user_id').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const disloopNewsPosts = pgTable(
   'disloop_news_posts',
   {
@@ -341,6 +347,15 @@ export const disloopGroupInvites = pgTable(
   },
   (table) => [uniqueIndex('disloop_group_invites_group_invitee_unique').on(table.groupId, table.inviteeId)],
 )
+
+export const disloopGroupInviteResponses = pgTable('disloop_group_invite_responses', {
+  inviteId: uuid('invite_id').primaryKey(),
+  groupId: uuid('group_id').notNull(),
+  inviterId: uuid('inviter_id').notNull(),
+  inviteeId: uuid('invitee_id').notNull(),
+  status: varchar('status', { length: 16 }).notNull().$type<'accepted' | 'rejected'>(),
+  actedAt: timestamp('acted_at', { withTimezone: true }).notNull().defaultNow(),
+})
 
 export const disloopGroupMessages = pgTable(
   'disloop_group_messages',

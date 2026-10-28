@@ -1,10 +1,11 @@
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { disloopProfilePreferences, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
+import { disloopProfilePreferences, disloopUserFlair, disloopUsernameHistory, disloopUsers } from '@/lib/db/schema'
 import type { DiscordIdentity } from '@/lib/discord'
 import type { ProfileDetails } from '@/lib/profile'
 import { getFollowCounts } from '@/lib/social-follows'
 import { safeApiFailureReason } from '@/lib/api-errors'
+import { isNewAccount } from '@/lib/new-account'
 
 const RESERVED_USERNAMES = new Set([
   'admin', 'administrator', 'mod', 'moderator', 'support', 'help', 'news', 'reels', 'search',
@@ -37,6 +38,7 @@ export type PublicProfile = ProfileDetails & {
   username: string
   isMember: boolean
   accountCreatedAt: string
+  isNewAccount: boolean
   followerCount: number
   followingCount: number
   nameStyle: string | null
@@ -52,6 +54,7 @@ export type CommunityMember = {
   displayName: string
   avatarUrl: string | null
   username: string
+  isNewAccount: boolean
   nameStyle?: string | null
   customTitle?: string | null
 }
@@ -65,6 +68,7 @@ export async function getMemberDirectory(): Promise<CommunityMember[]> {
       displayName: disloopUsers.displayName,
       avatarUrl: disloopUsers.avatarUrl,
       username: disloopUsers.usernameDisplay,
+      accountCreatedAt: disloopUsers.createdAt,
       nameStyle: disloopUserFlair.nameStyle,
       customTitle: disloopUserFlair.customTitle,
     })
@@ -73,6 +77,7 @@ export async function getMemberDirectory(): Promise<CommunityMember[]> {
     .where(eq(disloopUsers.isSeed, false))
     .orderBy(asc(disloopUsers.displayName))
     .limit(50)
+    .then((members) => members.map(({ accountCreatedAt, ...member }) => ({ ...member, isNewAccount: isNewAccount(accountCreatedAt) })))
 }
 
 function normalizeUsernameWithMinimum(value: string, minimumLength: number) {
@@ -106,10 +111,7 @@ export function generateInitialUsernameBase(identity: DiscordIdentity) {
   return base
 }
 
-export async function getPublicUserByUsername(username: string) {
-  const normalizedUsername = normalizeUsernameForLookup(username)
-  if (!normalizedUsername) return null
-
+async function getPublicUser(lookup: { username: string } | { id: string }) {
   const [user] = await db
     .select({
       id: disloopUsers.id,
@@ -135,7 +137,9 @@ export async function getPublicUserByUsername(username: string) {
     })
     .from(disloopUsers)
     .leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id))
-    .where(eq(disloopUsers.usernameLower, normalizedUsername))
+    .where('username' in lookup
+      ? eq(disloopUsers.usernameLower, lookup.username)
+      : eq(disloopUsers.id, lookup.id))
     .limit(1)
 
   if (!user) return null
@@ -155,9 +159,25 @@ export async function getPublicUserByUsername(username: string) {
     followerCount: followCounts.followersCount,
     followingCount: followCounts.followingCount,
     accountCreatedAt: user.accountCreatedAt.toISOString(),
+    isNewAccount: isNewAccount(user.accountCreatedAt),
     profileTheme: preferences?.theme ?? 'default',
     profileLink: preferences?.profileLink ?? null,
   }
+}
+
+export async function getPublicUserByUsername(username: string) {
+  const normalizedUsername = normalizeUsernameForLookup(username)
+  if (!normalizedUsername) return null
+  const [previousOwner] = await db.select({ userId: disloopUsernameHistory.userId })
+    .from(disloopUsernameHistory)
+    .where(eq(disloopUsernameHistory.usernameLower, normalizedUsername))
+    .limit(1)
+  if (previousOwner) return getPublicUser({ id: previousOwner.userId })
+  return getPublicUser({ username: normalizedUsername })
+}
+
+export async function getPublicUserById(id: string) {
+  return getPublicUser({ id })
 }
 
 export async function getUserNameFlair(userId: string) {
@@ -199,6 +219,11 @@ export async function upsertDiscordUser(identity: DiscordIdentity) {
       .where(and(eq(disloopUsers.usernameLower, candidate), eq(disloopUsers.isSeed, false)))
       .limit(1)
     if (taken) continue
+    const [previouslyUsed] = await db.select({ usernameLower: disloopUsernameHistory.usernameLower })
+      .from(disloopUsernameHistory)
+      .where(eq(disloopUsernameHistory.usernameLower, candidate))
+      .limit(1)
+    if (previouslyUsed) continue
 
     try {
       const [created] = await db

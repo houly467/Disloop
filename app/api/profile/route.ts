@@ -2,7 +2,7 @@ import { logApiException, safeApiFailureReason } from '@/lib/api-errors'
 import { and, eq, sql } from 'drizzle-orm'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { disloopUserBadges, disloopUsers } from '@/lib/db/schema'
+import { disloopUserBadges, disloopUsernameHistory, disloopUsers } from '@/lib/db/schema'
 import { requireLoggedInServerMember } from '@/lib/server-member'
 import { rateLimitResponse } from '@/lib/rate-limit'
 import { isSameOriginRequest } from '@/lib/security'
@@ -111,39 +111,68 @@ export async function PATCH(request: NextRequest) {
   }
 
   try {
-    const [updated] = await db.update(disloopUsers).set({
-      usernameLower,
-      usernameDisplay: username,
-      displayName,
-      bio,
-      location: location || null,
-      socialLinks,
-      publicVisitCount,
-      hideLikes,
-      hideReposts,
-      ...(dateOfBirth !== undefined ? { dateOfBirth } : {}),
-      ...(profileAvatarUrl !== undefined ? { profileAvatarUrl } : {}),
-      ...(profileBannerUrl !== undefined ? { profileBannerUrl } : {}),
-      updatedAt: new Date(),
-    }).where(eq(disloopUsers.id, user.id)).returning({
-      username: disloopUsers.usernameDisplay,
-      displayName: disloopUsers.displayName,
-      dateOfBirth: disloopUsers.dateOfBirth,
-      avatarUrl: sql<string | null>`coalesce(${disloopUsers.profileAvatarUrl}, ${disloopUsers.avatarUrl})`,
-      profileAvatarUrl: disloopUsers.profileAvatarUrl,
-      profileBannerUrl: disloopUsers.profileBannerUrl,
-      bio: disloopUsers.bio,
-      location: disloopUsers.location,
-      socialLinks: disloopUsers.socialLinks,
-      publicVisitCount: disloopUsers.publicVisitCount,
-      hideLikes: disloopUsers.hideLikes,
-      hideReposts: disloopUsers.hideReposts,
+    const previousUsername = normalizeUsernameForLookup(user.username)
+    const usernameChanged = previousUsername !== usernameLower
+    const updated = await db.transaction(async (tx) => {
+      const [reservedUsername] = await tx.select({ userId: disloopUsernameHistory.userId })
+        .from(disloopUsernameHistory)
+        .where(eq(disloopUsernameHistory.usernameLower, usernameLower))
+        .limit(1)
+      if (reservedUsername && reservedUsername.userId !== user.id) {
+        throw Object.assign(new Error('username_taken'), { code: 'USERNAME_HISTORY_CONFLICT' })
+      }
+
+      if (usernameChanged && previousUsername) {
+        const [reservation] = await tx.insert(disloopUsernameHistory)
+          .values({ usernameLower: previousUsername, userId: user.id })
+          .onConflictDoNothing()
+          .returning({ userId: disloopUsernameHistory.userId })
+        if (!reservation) {
+          const [existingReservation] = await tx.select({ userId: disloopUsernameHistory.userId })
+            .from(disloopUsernameHistory)
+            .where(eq(disloopUsernameHistory.usernameLower, previousUsername))
+            .limit(1)
+          if (existingReservation?.userId !== user.id) {
+            throw Object.assign(new Error('username_taken'), { code: 'USERNAME_HISTORY_CONFLICT' })
+          }
+        }
+      }
+
+      const [profile] = await tx.update(disloopUsers).set({
+        usernameLower,
+        usernameDisplay: username,
+        displayName,
+        bio,
+        location: location || null,
+        socialLinks,
+        publicVisitCount,
+        hideLikes,
+        hideReposts,
+        ...(dateOfBirth !== undefined ? { dateOfBirth } : {}),
+        ...(profileAvatarUrl !== undefined ? { profileAvatarUrl } : {}),
+        ...(profileBannerUrl !== undefined ? { profileBannerUrl } : {}),
+        updatedAt: new Date(),
+      }).where(eq(disloopUsers.id, user.id)).returning({
+        username: disloopUsers.usernameDisplay,
+        displayName: disloopUsers.displayName,
+        dateOfBirth: disloopUsers.dateOfBirth,
+        avatarUrl: sql<string | null>`coalesce(${disloopUsers.profileAvatarUrl}, ${disloopUsers.avatarUrl})`,
+        profileAvatarUrl: disloopUsers.profileAvatarUrl,
+        profileBannerUrl: disloopUsers.profileBannerUrl,
+        bio: disloopUsers.bio,
+        location: disloopUsers.location,
+        socialLinks: disloopUsers.socialLinks,
+        publicVisitCount: disloopUsers.publicVisitCount,
+        hideLikes: disloopUsers.hideLikes,
+        hideReposts: disloopUsers.hideReposts,
+      })
+      return profile
     })
     await notifyMentions(bio, user.id, 'profile', user.id).catch(() => undefined)
     return NextResponse.json({ profile: updated })
   } catch (error) {
     logApiException('PATCH /api/profile', error)
-    if (databaseCode(error) === '23505') return NextResponse.json({ error: 'username_taken' }, { status: 409 })
+    if (databaseCode(error) === '23505' || databaseCode(error) === 'USERNAME_HISTORY_CONFLICT') return NextResponse.json({ error: 'username_taken' }, { status: 409 })
     return NextResponse.json({ error: 'profile_update_failed', reason: safeApiFailureReason(error) }, { status: 500 })
   }
 }

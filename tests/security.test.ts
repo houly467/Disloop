@@ -93,7 +93,29 @@ function prepareProfileUsernameUpdate(options: { currentUsername?: string; verif
   const where = vi.fn(() => ({ returning }))
   const set = vi.fn(() => ({ where }))
   mocks.db.update.mockReturnValue({ set })
-  return { set, returning }
+  const historyValues = vi.fn()
+  const tx = {
+    select: vi.fn(() => {
+      const query: Record<string, ReturnType<typeof vi.fn>> = {}
+      query.from = vi.fn(() => query)
+      query.where = vi.fn(() => query)
+      query.limit = vi.fn().mockResolvedValue([])
+      return query
+    }),
+    insert: vi.fn(() => ({
+      values: vi.fn((value: unknown) => {
+        historyValues(value)
+        return {
+          onConflictDoNothing: vi.fn(() => ({
+            returning: vi.fn().mockResolvedValue([{ userId: USER_ID }]),
+          })),
+        }
+      }),
+    })),
+    update: mocks.db.update,
+  }
+  mocks.db.transaction.mockImplementation((callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx))
+  return { set, returning, historyValues }
 }
 
 function profileUpdateBody(username: string) {
@@ -166,6 +188,7 @@ describe('security regression checks', () => {
     expect(normalizeUsername('admin', true)).toBeNull()
     expect(normalizeUsername('MiXeD')).toBe('mixed')
     expect(normalizeUsernameForLookup('1')).toBe('1')
+    expect(normalizeUsernameForLookup('LL')).toBe('ll')
   })
 
   it('falls back to a valid initial username when Discord names are shorter than four characters', () => {
@@ -303,6 +326,14 @@ describe('security regression checks', () => {
 
     expect(response.status).toBe(200)
     expect(set).toHaveBeenCalledWith(expect.objectContaining({ usernameLower: 'mixed', usernameDisplay: 'MiXeD' }))
+  })
+
+  it('reserves the old username for the same profile when the username changes', async () => {
+    const { historyValues } = prepareProfileUsernameUpdate()
+    const response = await updateProfile(request('http://localhost:3000/api/profile', 'PATCH', profileUpdateBody('new.name')))
+
+    expect(response.status).toBe(200)
+    expect(historyValues).toHaveBeenCalledWith({ usernameLower: 'current.user', userId: USER_ID })
   })
 
   it('continues enforcing case-insensitive uniqueness in the database', async () => {
@@ -455,7 +486,7 @@ describe('security regression checks', () => {
   })
 
   it('invalidates every existing group invite acceptance link', async () => {
-    const response = await respondToGroupInvite()
+    const response = await respondToGroupInvite(undefined as never, undefined)
 
     expect(response.status).toBe(410)
     expect(await response.json()).toEqual({ error: 'group_invites_disabled' })

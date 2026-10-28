@@ -14,6 +14,7 @@ import { redis } from '@/lib/upstash'
 
 const EXPECTED_TABLE_COLUMNS = {
   disloop_users: ['id', 'discord_id', 'discord_username', 'display_name', 'avatar_url', 'date_of_birth', 'profile_avatar_url', 'profile_banner_url', 'username_lower', 'username_display', 'bio', 'location', 'social_links', 'xp', 'status_line', 'name_color', 'is_staff_role', 'hide_likes', 'public_visit_count', 'show_status', 'show_name_color', 'show_badges', 'is_member', 'has_created_group', 'is_banned', 'ban_reason', 'banned_at', 'banned_by_discord_id', 'is_seed', 'presence_status', 'presence_updated_at', 'created_at', 'updated_at'],
+  disloop_username_history: ['username_lower', 'user_id', 'created_at'],
   disloop_groups: ['id', 'owner_id', 'name', 'description', 'tag', 'xp', 'is_private', 'created_at'],
   disloop_group_members: ['group_id', 'user_id', 'role', 'joined_at'],
   disloop_group_invites: ['id', 'group_id', 'inviter_id', 'invitee_id', 'created_at', 'expires_at'],

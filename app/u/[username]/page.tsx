@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { ProfileSection } from '@/components/community-sections'
 import { getNewsPostsByAuthor } from '@/lib/news'
 import { getReels } from '@/lib/reels'
@@ -26,6 +26,7 @@ export async function generateMetadata({ params }: ProfilePageProps): Promise<Me
   return {
     title,
     description: `See ${profile.displayName}'s Disloop community profile.`,
+    alternates: { canonical: `/u/${encodeURIComponent(profile.username)}` },
     openGraph: {
       title,
       description: `See ${profile.displayName}'s Disloop community profile.`,
@@ -39,6 +40,9 @@ export default async function PublicProfilePage({ params }: ProfilePageProps) {
   const { username } = await params
   const profile = await loadProfile(username)
   if (!profile) notFound()
+  if (profile.username.toLowerCase() !== username.toLowerCase()) {
+    redirect(`/u/${encodeURIComponent(profile.username)}`)
+  }
 
   const viewer = await getCurrentUser()
   if (viewer && viewer.id !== profile.id && await areUsersBlocked(viewer.id, profile.id)) {
@@ -58,7 +62,7 @@ export default async function PublicProfilePage({ params }: ProfilePageProps) {
   return (
     <main className="disloop-shell public-profile-page">
       <BackButton />
-      <ProfileSection profile={profile} posts={posts} reels={reels} locale="en" profileVisitCount={profileVisitCount} viewer={viewer} />
+      <ProfileSection profile={profile} posts={posts} reels={reels} locale="en" profileVisitCount={profileVisitCount} viewer={viewer} permanentPath={`/u/${encodeURIComponent(profile.username)}`} />
     </main>
   )
 }
