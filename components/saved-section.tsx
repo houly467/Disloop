@@ -5,6 +5,7 @@ import useSWR from 'swr'
 import { Bookmark, Check, Video } from 'lucide-react'
 import { RichText } from '@/components/mention-textarea'
 import { UserName } from '@/components/user-name'
+import { Button } from '@/components/ui/button'
 import type { CurrentUser } from '@/lib/session'
 
 type SavedItem = {
@@ -66,11 +67,11 @@ export function SavedSection({ viewer, locale }: { viewer: CurrentUser | null; l
     {!viewer ? <div className="section-empty"><h2>{locale === 'ar' ? 'سجّل الدخول لعرض المحفوظات.' : 'Log in to view your saved items.'}</h2></div>
       : error ? <div className="section-empty"><h2>{copy.error}</h2></div>
         : data?.available === false ? <div className="section-empty"><h2>{copy.unavailable}</h2></div>
-          : data?.bookmarks.length ? <>{updateError && <p className="profile-action-error" role="alert">{updateError}</p>}<div className="news-list">{data.bookmarks.map((saved) => <article className="search-post saved-content-card" key={`${saved.type}-${saved.item.id}`}>
+          : data?.bookmarks.length ? <>{updateError && <p className="profile-action-error" role="alert">{updateError}</p>}<div className="saved-card-grid">{data.bookmarks.map((saved) => <article className="search-post saved-content-card" key={`${saved.type}-${saved.item.id}`}>
             <div className="saved-content-author">
               {saved.item.authorAvatar ? <img src={saved.item.authorAvatar} alt="" /> : <span>{saved.item.authorName?.charAt(0) ?? '?'}</span>}
               <a href={`/u/${encodeURIComponent(saved.item.authorUsername ?? '')}`}><UserName userId={saved.item.authorId} name={saved.item.authorName ?? 'Disloop Community'} username={saved.item.authorUsername ?? 'community-team'} nameStyle={saved.item.authorNameStyle} customTitle={saved.item.authorCustomTitle} locale={locale} /></a>
-              <button type="button" className="icon-button" aria-label={copy.remove} onClick={() => void unsave(saved)}><Check aria-hidden="true" /></button>
+              <Button type="button" variant="ghost" size="icon" aria-label={copy.remove} title={copy.remove} onClick={() => void unsave(saved)}><Check aria-hidden="true" /></Button>
             </div>
             {saved.type === 'news'
               ? <><span className="category-pill">{saved.item.category}</span><h2>{saved.item.title}</h2><p><RichText text={saved.item.body ?? ''} /></p>{saved.item.coverUrl && <img className="saved-content-cover" src={saved.item.coverUrl} alt="" />}</>
