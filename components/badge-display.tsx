@@ -54,6 +54,7 @@ export function EquippedBadges({ userId, locale }: { userId: string; locale: Loc
 export function BadgeCollection({ userId, locale, editable = false }: { userId: string; locale: Locale; editable?: boolean }) {
   const { data, mutate } = useSWR<{ badges: Badge[] }>(`/api/badges/${encodeURIComponent(userId)}`, fetchBadges)
   const badges = data?.badges ?? []
+  const earnedBadges = badges.filter((badge) => badge.earned)
   async function toggle(badge: Badge) {
     if (!editable || !data) return
     const equipped = data.badges.filter((item) => item.equipped).map((item) => item.id)
@@ -61,7 +62,9 @@ export function BadgeCollection({ userId, locale, editable = false }: { userId: 
     const response = await fetch(`/api/badges/${encodeURIComponent(userId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ equipped: next }) })
     if (response.ok) await mutate({ badges: data.badges.map((item) => ({ ...item, equipped: next.includes(item.id) })) }, false)
   }
-  return <div className="badge-list">{badges.map((badge) => <article className={`community-badge ${badge.earned ? 'community-badge-earned' : ''}`} key={badge.id}>
+  if (!data) return <div className="badge-list badge-list-skeleton" aria-label={locale === 'ar' ? 'جارٍ تحميل الشارات' : 'Loading badges'}><span /><span /><span /></div>
+  if (!earnedBadges.length) return <p className="badge-empty">{locale === 'ar' ? 'لا توجد شارات مكتسبة بعد.' : 'No badges earned yet.'}</p>
+  return <div className="badge-list">{earnedBadges.map((badge) => <article className="community-badge community-badge-earned" key={badge.id}>
     <BadgeChip badge={badge} locale={locale} />
     {editable && badge.earned && <button className="badge-equip-button" type="button" aria-pressed={badge.equipped} onClick={() => void toggle(badge)}>{badge.equipped ? (locale === 'ar' ? 'إزالة' : 'Unequip') : (locale === 'ar' ? 'تجهيز' : 'Equip')}</button>}
   </article>)}</div>

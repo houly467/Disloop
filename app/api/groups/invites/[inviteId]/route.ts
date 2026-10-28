@@ -1,5 +1,5 @@
 import { apiFailurePayload } from '@/lib/api-errors'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, gt, sql } from 'drizzle-orm'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { disloopGroupInvites, disloopGroupInviteResponses, disloopGroupMembers, disloopGroups, disloopNotifications } from '@/lib/db/schema'
@@ -33,18 +33,15 @@ const errorStatus: Record<string, number> = {
   group_full: 409,
 }
 
-export async function POST(request: NextRequest | undefined, context?: RouteProps) {
-  if (!request || !context || !context.params) {
-    return NextResponse.json({ error: 'group_invites_disabled' }, { status: 410 })
-  }
+export async function POST(request: NextRequest, context: RouteProps) {
   const access = await requireLoggedInServerMember(request)
   if (!access.ok) return access.response
   const user = access.user
   const rateLimit = await rateLimitResponse(`group-invite-response:${user.id}`, 60, 3600)
   if (rateLimit) return rateLimit
   const params = await context.params
-  const inviteId = params.inviteId
-  if (!isUuid(inviteId)) return NextResponse.json({ error: 'invite_unavailable' }, { status: 404 })
+  const inviteId = params?.inviteId
+  if (!inviteId || !isUuid(inviteId)) return NextResponse.json({ error: 'invite_unavailable' }, { status: 404 })
   const data = await parseJsonBody(request, z.object({ action: z.enum(['accept', 'reject']) }).strict())
   if (!data) return NextResponse.json({ error: 'invalid_invite_action' }, { status: 400 })
 
@@ -53,7 +50,7 @@ export async function POST(request: NextRequest | undefined, context?: RouteProp
       inviteeId: disloopGroupInvites.inviteeId,
       inviterId: disloopGroupInvites.inviterId,
     }).from(disloopGroupInvites)
-      .where(eq(disloopGroupInvites.id, inviteId))
+      .where(and(eq(disloopGroupInvites.id, inviteId), gt(disloopGroupInvites.expiresAt, new Date())))
       .limit(1)
     if (existingInvite && existingInvite.inviteeId !== user.id) return NextResponse.json({ error: 'invitee_required' }, { status: 403 })
     if (existingInvite && data.action === 'accept' && await areUsersBlocked(existingInvite.inviterId, user.id)) {
@@ -67,7 +64,7 @@ export async function POST(request: NextRequest | undefined, context?: RouteProp
         inviterId: disloopGroupInvites.inviterId,
         inviteeId: disloopGroupInvites.inviteeId,
       }).from(disloopGroupInvites)
-        .where(eq(disloopGroupInvites.id, inviteId))
+        .where(and(eq(disloopGroupInvites.id, inviteId), gt(disloopGroupInvites.expiresAt, new Date())))
         .for('update')
       const [previousResponse] = await tx.select({
         groupId: disloopGroupInviteResponses.groupId,
@@ -165,15 +162,12 @@ export async function POST(request: NextRequest | undefined, context?: RouteProp
   }
 }
 
-export async function DELETE(request: NextRequest | undefined, context?: RouteProps) {
-  if (!request || !context || !context.params) {
-    return NextResponse.json({ error: 'group_invites_disabled' }, { status: 410 })
-  }
+export async function DELETE(request: NextRequest, context: RouteProps) {
   const access = await requireLoggedInServerMember(request)
   if (!access.ok) return access.response
   const params = await context.params
-  const inviteId = params.inviteId
-  if (!isUuid(inviteId)) return NextResponse.json({ error: 'invite_unavailable' }, { status: 404 })
+  const inviteId = params?.inviteId
+  if (!inviteId || !isUuid(inviteId)) return NextResponse.json({ error: 'invite_unavailable' }, { status: 404 })
   const rateLimit = await rateLimitResponse(`group-invite-cancel:${access.user.id}`, 60, 3600)
   if (rateLimit) return rateLimit
 

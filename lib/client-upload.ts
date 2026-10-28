@@ -81,7 +81,7 @@ export async function uploadMedia({ endpoint, file, kind, durationSeconds, onPro
     const status = value?.status ?? value?.statusCode ?? null
     const retryAfter = Number(value?.retryAfter)
     console.error('[upload] upload failed', { status, reason, retryAfter: Number.isFinite(retryAfter) ? retryAfter : null, kind, pathname })
-    if (status === 429 && Number.isFinite(retryAfter) && retryAfter > 0) throw new Error(`rate_limited:${Math.ceil(retryAfter)}`)
+    if (status === 429) throw new Error(`rate_limited:${Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter) : 300}`)
     throw new Error(reason)
   }
 }

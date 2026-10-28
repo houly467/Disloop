@@ -86,6 +86,7 @@ export const disloopNewsPosts = pgTable(
   (table) => [
     index('disloop_news_created_at_idx').on(table.createdAt),
     index('disloop_news_visible_created_idx').on(desc(table.pinned), desc(table.createdAt)).where(sql`${table.isHidden} = false`),
+    index('disloop_news_author_created_idx').on(table.authorId, desc(table.createdAt), desc(table.id)).where(sql`${table.isHidden} = false`),
     index('disloop_news_tags_gin_idx').using('gin', table.tags),
   ],
 )
@@ -100,6 +101,8 @@ export const disloopReels = pgTable(
     repliesFromFollowing: boolean('replies_from_following').notNull().default(false),
     tags: text('tags').array().notNull().default(sql`'{}'::text[]`),
     isHidden: boolean('is_hidden').notNull().default(false),
+    coverPath: text('cover_path'),
+    isPinned: boolean('is_pinned').notNull().default(false),
     moderatedAt: timestamp('moderated_at', { withTimezone: true }),
     moderatedBy: uuid('moderated_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -108,6 +111,7 @@ export const disloopReels = pgTable(
   (table) => [
     index('disloop_reels_visible_created_idx').on(table.createdAt).where(sql`${table.isHidden} = false`),
     index('disloop_reels_visible_created_id_idx').on(desc(table.createdAt), desc(table.id)).where(sql`${table.isHidden} = false`),
+    index('disloop_reels_profile_created_idx').on(table.authorId, desc(table.createdAt), desc(table.id)).where(sql`${table.isHidden} = false`),
     index('disloop_reels_tags_gin_idx').using('gin', table.tags),
   ],
 )

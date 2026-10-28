@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
     select: vi.fn(),
     update: vi.fn(),
     transaction: vi.fn(),
+    execute: vi.fn(),
   },
   getCurrentUser: vi.fn(),
   getCurrentUserResult: vi.fn(),
@@ -39,14 +40,19 @@ vi.mock('@/lib/upstash', () => ({ redis: mocks.redis }))
 
 import { GET as getModerationQueue } from '@/app/api/moderation/route'
 import { PATCH as updateProfile } from '@/app/api/profile/route'
+import { GET as checkUsernameAvailability } from '@/app/api/profile/username/route'
 import { POST as createGroup } from '@/app/api/groups/route'
 import { POST as joinGroup } from '@/app/api/groups/[id]/join/route'
-import { POST as respondToGroupInvite } from '@/app/api/groups/invites/[inviteId]/route'
+import { GET as getGroupDetail } from '@/app/api/groups/[id]/route'
+import { GET as getGroupMessages } from '@/app/api/groups/[id]/messages/route'
+import { DELETE as kickGroupMember } from '@/app/api/groups/[id]/members/[userId]/route'
+import { GET as getMedia } from '@/app/api/media/route'
+import { canManageGroupInvites, inviteEligibilityError, resolveInviteAction } from '@/lib/group-invites'
 import { PATCH as pinComment } from '@/app/api/social/comments/[id]/route'
 import { awardXp } from '@/lib/gamification'
 import { buildUploadToken } from '@/lib/blob-uploads'
 import { RichText } from '@/components/mention-textarea'
-import { generateInitialUsernameBase, normalizeUsername, normalizeUsernameForLookup } from '@/lib/users'
+import { generateInitialUsernameBase, getPublicUserByUsername, normalizeUsername, normalizeUsernameForLookup } from '@/lib/users'
 import { requireLoggedInServerMember } from '@/lib/server-member'
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
@@ -68,6 +74,7 @@ function request(url: string, method: string, body?: unknown) {
 function selectResult(result: unknown[]) {
   const query: Record<string, ReturnType<typeof vi.fn>> = {}
   query.from = vi.fn(() => query)
+  query.leftJoin = vi.fn(() => query)
   query.where = vi.fn(() => query)
   query.limit = vi.fn().mockResolvedValue(result)
   return query
@@ -93,29 +100,13 @@ function prepareProfileUsernameUpdate(options: { currentUsername?: string; verif
   const where = vi.fn(() => ({ returning }))
   const set = vi.fn(() => ({ where }))
   mocks.db.update.mockReturnValue({ set })
-  const historyValues = vi.fn()
   const tx = {
-    select: vi.fn(() => {
-      const query: Record<string, ReturnType<typeof vi.fn>> = {}
-      query.from = vi.fn(() => query)
-      query.where = vi.fn(() => query)
-      query.limit = vi.fn().mockResolvedValue([])
-      return query
-    }),
-    insert: vi.fn(() => ({
-      values: vi.fn((value: unknown) => {
-        historyValues(value)
-        return {
-          onConflictDoNothing: vi.fn(() => ({
-            returning: vi.fn().mockResolvedValue([{ userId: USER_ID }]),
-          })),
-        }
-      }),
-    })),
+    select: vi.fn(),
+    insert: vi.fn(),
     update: mocks.db.update,
   }
   mocks.db.transaction.mockImplementation((callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx))
-  return { set, returning, historyValues }
+  return { set, returning, tx }
 }
 
 function profileUpdateBody(username: string) {
@@ -328,21 +319,64 @@ describe('security regression checks', () => {
     expect(set).toHaveBeenCalledWith(expect.objectContaining({ usernameLower: 'mixed', usernameDisplay: 'MiXeD' }))
   })
 
-  it('reserves the old username for the same profile when the username changes', async () => {
-    const { historyValues } = prepareProfileUsernameUpdate()
+  it('releases the old username immediately without reading or writing username history', async () => {
+    const { tx } = prepareProfileUsernameUpdate()
     const response = await updateProfile(request('http://localhost:3000/api/profile', 'PATCH', profileUpdateBody('new.name')))
 
     expect(response.status).toBe(200)
-    expect(historyValues).toHaveBeenCalledWith({ usernameLower: 'current.user', userId: USER_ID })
+    expect(tx.select).not.toHaveBeenCalled()
+    expect(tx.insert).not.toHaveBeenCalled()
+    expect(mocks.rateLimitResponse).toHaveBeenNthCalledWith(2, `username-change:${USER_ID}`, 1, 7 * 24 * 60 * 60)
   })
 
-  it('continues enforcing case-insensitive uniqueness in the database', async () => {
+  it('reports a concurrent case-insensitive username claim conflict from the unique index', async () => {
     const duplicateError = Object.assign(new Error('duplicate username'), { code: '23505' })
     prepareProfileUsernameUpdate({ updateError: duplicateError })
     const response = await updateProfile(request('http://localhost:3000/api/profile', 'PATCH', profileUpdateBody('MiXeD')))
 
     expect(response.status).toBe(409)
     expect(await response.json()).toMatchObject({ error: 'username_taken' })
+  })
+
+  it('returns a clear retry response when the seven-day username-change limit is reached', async () => {
+    prepareProfileUsernameUpdate()
+    mocks.rateLimitResponse
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'rate_limited', retryAfter: 3600 }), {
+        status: 429,
+        headers: { 'Retry-After': '3600' },
+      }))
+
+    const response = await updateProfile(request('http://localhost:3000/api/profile', 'PATCH', profileUpdateBody('new.name')))
+
+    expect(response.status).toBe(429)
+    expect(await response.json()).toMatchObject({ error: 'username_change_limited', retryAfter: 3600 })
+    expect(mocks.db.transaction).not.toHaveBeenCalled()
+  })
+
+  it('treats a released username as available when no current account owns it', async () => {
+    mocks.db.select.mockImplementation(() => selectResult([]))
+    const response = await checkUsernameAvailability(request('http://localhost:3000/api/profile/username?username=502', 'GET'))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ valid: true, available: true })
+    expect(mocks.db.select).toHaveBeenCalledTimes(1)
+  })
+
+  it('marks a username unavailable when another current account owns it', async () => {
+    mocks.db.select.mockImplementation(() => selectResult([{ id: OTHER_USER_ID }]))
+    const response = await checkUsernameAvailability(request('http://localhost:3000/api/profile/username?username=somebody', 'GET'))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ valid: true, available: false })
+    expect(mocks.db.select).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not resolve a former /u username to its previous owner', async () => {
+    mocks.db.select.mockImplementation(() => selectResult([]))
+
+    await expect(getPublicUserByUsername('former.handle')).resolves.toBeNull()
+    expect(mocks.db.select).toHaveBeenCalledTimes(1)
   })
 
   it('preserves an existing short username when the user does not change it', async () => {
@@ -458,38 +492,93 @@ describe('security regression checks', () => {
     expect(await response.json()).toEqual({ error: 'group_limit_reached' })
   })
 
-  it('blocks joining a second group when the user already belongs to another', async () => {
-    const queryResults = [
-      [{ id: CONTENT_ID, isPrivate: false }],
-      [{ groupId: OTHER_USER_ID }],
-    ]
-    const transaction = {
-      execute: vi.fn().mockResolvedValue(undefined),
-      select: vi.fn(() => {
-        const query: Record<string, ReturnType<typeof vi.fn>> = {}
-        query.from = vi.fn(() => query)
-        query.where = vi.fn(() => query)
-        query.limit = vi.fn().mockImplementation(async () => queryResults.shift() ?? [])
-        return query
-      }),
-      insert: vi.fn(),
-    }
-    mocks.db.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback(transaction))
-
+  it('blocks every self-join through the API, even for an existing public group', async () => {
     const response = await joinGroup(request(`http://localhost:3000/api/groups/${CONTENT_ID}/join`, 'POST'), {
       params: Promise.resolve({ id: CONTENT_ID }),
     })
 
-    expect(response.status).toBe(409)
-    expect(await response.json()).toEqual({ error: 'group_membership_exists' })
-    expect(transaction.insert).not.toHaveBeenCalled()
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ error: 'invite_required' })
+    expect(mocks.db.transaction).not.toHaveBeenCalled()
   })
 
-  it('invalidates every existing group invite acceptance link', async () => {
-    const response = await respondToGroupInvite(undefined as never, undefined)
+  it('does not expose group member lists or messages to non-members', async () => {
+    const groupResults = [
+      [{ id: CONTENT_ID, name: 'Private group', description: '', tag: 'private', ownerId: OTHER_USER_ID }],
+      [],
+    ]
+    mocks.db.select.mockImplementation(() => selectResult(groupResults.shift() ?? []))
+    const detail = await getGroupDetail(request(`http://localhost:3000/api/groups/${CONTENT_ID}`, 'GET'), {
+      params: Promise.resolve({ id: CONTENT_ID }),
+    })
+    expect(detail.status).toBe(403)
+    expect(await detail.json()).toEqual({ error: 'group_membership_required' })
 
-    expect(response.status).toBe(410)
-    expect(await response.json()).toEqual({ error: 'group_invites_disabled' })
+    mocks.db.select.mockImplementation(() => selectResult([]))
+    const messages = await getGroupMessages(request(`http://localhost:3000/api/groups/${CONTENT_ID}/messages`, 'GET'), {
+      params: Promise.resolve({ id: CONTENT_ID }),
+    })
+    expect(messages.status).toBe(403)
+    expect(await messages.json()).toEqual({ error: 'group_membership_required' })
+  })
+
+  it('does not serve group media to users without group membership', async () => {
+    mocks.db.execute.mockResolvedValue({ rows: [{ allowed: false }] })
+    const response = await getMedia(request(
+      'http://localhost:3000/api/media?pathname=chat-media/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg',
+      'GET',
+    ))
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'media_not_found' })
+  })
+
+  it('blocks member-level access to the kick endpoint', async () => {
+    const query: Record<string, ReturnType<typeof vi.fn>> = {}
+    query.from = vi.fn(() => query)
+    query.where = vi.fn(() => query)
+    query.for = vi.fn().mockResolvedValue([{ role: 'member' }])
+    const transaction = { select: vi.fn(() => query), delete: vi.fn() }
+    mocks.db.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback(transaction))
+
+    const response = await kickGroupMember(request(
+      `http://localhost:3000/api/groups/${CONTENT_ID}/members/${OTHER_USER_ID}`,
+      'DELETE',
+    ), { params: Promise.resolve({ id: CONTENT_ID, userId: OTHER_USER_ID }) })
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ error: 'group_member_permission_required' })
+    expect(transaction.delete).not.toHaveBeenCalled()
+  })
+
+  it('allows only owners and admins to manage group invitations', () => {
+    expect(canManageGroupInvites('owner')).toBe(true)
+    expect(canManageGroupInvites('admin')).toBe(true)
+    expect(canManageGroupInvites('member')).toBe(false)
+    expect(canManageGroupInvites(undefined)).toBe(false)
+  })
+
+  it('blocks duplicate, current-member, and cross-group invitations', () => {
+    expect(inviteEligibilityError({ blocked: false, memberGroupId: CONTENT_ID, hasPendingInvite: false }, CONTENT_ID)).toBe('already_member')
+    expect(inviteEligibilityError({ blocked: false, memberGroupId: OTHER_USER_ID, hasPendingInvite: false }, CONTENT_ID)).toBe('group_membership_exists')
+    expect(inviteEligibilityError({ blocked: false, memberGroupId: null, hasPendingInvite: true }, CONTENT_ID)).toBe('invite_exists')
+  })
+
+  it('accepts and declines invitations, while an expired invitation cannot be used', () => {
+    const accept = resolveInviteAction({
+      action: 'accept', inviteeMatchesSession: true, inviteExists: true, existingStatus: null,
+      groupExists: true, inviteGroupId: CONTENT_ID, memberGroupId: null, groupFull: false,
+    })
+    const decline = resolveInviteAction({
+      action: 'reject', inviteeMatchesSession: true, inviteExists: true, existingStatus: null,
+      groupExists: true, inviteGroupId: CONTENT_ID, memberGroupId: null, groupFull: false,
+    })
+    const expired = resolveInviteAction({
+      action: 'accept', inviteeMatchesSession: true, inviteExists: false, existingStatus: null,
+      groupExists: false, inviteGroupId: '', memberGroupId: null, groupFull: false,
+    })
+    expect(accept).toMatchObject({ status: 'accepted', repeated: false })
+    expect(decline).toMatchObject({ status: 'rejected', repeated: false })
+    expect(expired).toEqual({ error: 'invite_unavailable' })
   })
 
   it('blocks a member from pinning a comment on another author’s post', async () => {
@@ -568,8 +657,8 @@ describe('security regression checks', () => {
     })
 
     expect(response.status).toBe(200)
-    expect(mocks.rateLimitResponse).toHaveBeenCalledWith(`upload-token:${USER_ID}`, 30, 600)
-    expect(mocks.rateLimitResponse).not.toHaveBeenCalledWith(`upload-completed:reel:${USER_ID}`, 5, 86_400)
+    expect(mocks.rateLimitResponse).toHaveBeenCalledWith(`upload-token:${USER_ID}`, 30, 300)
+    expect(mocks.rateLimitResponse).not.toHaveBeenCalledWith(`upload-completed:reel:${USER_ID}`, expect.any(Number), expect.any(Number))
     expect(mocks.redis.set.mock.calls[0][0]).toMatch(new RegExp(`^disloop:upload:reels/${USER_ID}/`))
   })
 
@@ -590,7 +679,7 @@ describe('security regression checks', () => {
     expect(mocks.rateLimitResponse.mock.calls.map(([key]) => key)).toEqual(userIds.map((userId) => `upload-token:${userId}`))
   })
 
-  it('counts only validated completed uploads against the authenticated user daily quota', async () => {
+  it('does not apply the daily completed-upload quota to reels', async () => {
     const uploadId = '33333333-3333-4333-8333-333333333333'
     const pathname = `reels/${USER_ID}/${uploadId}.mp4`
     const reservationKey = `disloop:upload:${pathname}`
@@ -614,7 +703,7 @@ describe('security regression checks', () => {
     })
 
     expect(response.status).toBe(200)
-    expect(mocks.rateLimitResponse).toHaveBeenCalledWith(`upload-completed:reel:${USER_ID}`, 5, 86_400)
+    expect(mocks.rateLimitResponse).not.toHaveBeenCalledWith(`upload-completed:reel:${USER_ID}`, expect.any(Number), expect.any(Number))
   })
 
   it('rejects an oversized reel before reserving an upload', async () => {

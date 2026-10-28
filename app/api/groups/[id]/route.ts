@@ -2,7 +2,7 @@ import { apiFailurePayload } from '@/lib/api-errors'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { disloopChatReactions, disloopGroupInvites, disloopGroupMembers, disloopGroupMessages, disloopGroups, disloopNotifications, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
+import { disloopChatReactions, disloopGroupInvites, disloopGroupInviteResponses, disloopGroupMembers, disloopGroupMessages, disloopGroups, disloopNotifications, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
 import { isUuid } from '@/lib/dm'
 import { getMessageReactionSummaries } from '@/lib/chat'
 import { getCurrentUser } from '@/lib/session'
@@ -113,6 +113,7 @@ export async function DELETE(request: NextRequest, { params }: RouteProps) {
           inArray(disloopNotifications.targetId, inviteIds),
         ))
       }
+      await tx.delete(disloopGroupInviteResponses).where(eq(disloopGroupInviteResponses.groupId, id))
       await tx.delete(disloopGroupInvites).where(eq(disloopGroupInvites.groupId, id))
 
       const messages = await tx.select({ id: disloopGroupMessages.id })

@@ -102,9 +102,9 @@ async function validateAndConsumeReservation({ blob, userId, kind }: {
       maximumDurationSeconds: 'maximumDurationSeconds' in config ? config.maximumDurationSeconds : undefined,
     })
 
-    if ('dailyLimit' in config && config.dailyLimit) {
-      const quotaResponse = await rateLimitResponse(`upload-completed:${kind}:${userId}`, config.dailyLimit, 86_400)
-      if (quotaResponse) throw new UploadLimitError(quotaResponse)
+    if (kind !== 'reel' && 'dailyLimit' in config && config.dailyLimit) {
+      const dailyLimit = await rateLimitResponse(`upload-completed:${kind}:${userId}`, config.dailyLimit, 86_400)
+      if (dailyLimit) throw new UploadLimitError(dailyLimit)
     }
 
     await redisClient.set(completionKey, reservation, { ex: 86_400 })
@@ -170,7 +170,7 @@ export async function buildUploadToken({ request, body, userId, kind }: {
     }
     if (!redis) return NextResponse.json({ error: 'upload_unavailable', reason: 'upload_unavailable' }, { status: 503 })
 
-    const tokenLimit = await rateLimitResponse(`upload-token:${userId}`, 30, 600)
+    const tokenLimit = await rateLimitResponse(`upload-token:${userId}`, 30, 300)
     if (tokenLimit) return tokenLimit
 
     const pathname = buildUploadPath(kind, userId, randomUUID(), parsed.data.contentType)
@@ -217,7 +217,7 @@ export async function buildUploadToken({ request, body, userId, kind }: {
     }
     const reservation: UploadReservation = validation.reservation
 
-    const tokenLimit = await rateLimitResponse(`upload-token:${userId}`, 30, 600)
+    const tokenLimit = await rateLimitResponse(`upload-token:${userId}`, 30, 300)
     if (tokenLimit) return tokenLimit
 
     const result = await handleUpload({

@@ -36,6 +36,7 @@ const UPLOAD_ID = '22222222-2222-4222-8222-222222222222'
   it('keeps per-kind media limits explicit in the shared configuration', () => {
     expect(UPLOAD_CONFIG.reel.maximumSizeInBytes).toBe(40 * 1024 * 1024)
     expect(UPLOAD_CONFIG.reel.maximumDurationSeconds).toBe(60)
+    expect('dailyLimit' in UPLOAD_CONFIG.reel).toBe(false)
     expect(UPLOAD_CONFIG.story.dailyLimit).toBe(20)
     expect(UPLOAD_CONFIG.daily.dailyLimit).toBe(10)
     expect(UPLOAD_CONFIG.avatar.maximumSizeInBytes).toBe(5 * 1024 * 1024)

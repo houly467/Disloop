@@ -1,8 +1,6 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { ProfileSection } from '@/components/community-sections'
-import { getNewsPostsByAuthor } from '@/lib/news'
-import { getReels } from '@/lib/reels'
 import { isUuid } from '@/lib/dm'
 import { getCurrentUser } from '@/lib/session'
 import { getProfileVisitCount, recordProfileVisit } from '@/lib/profile-visits'
@@ -48,10 +46,6 @@ export default async function PermanentProfilePage({ params }: ProfilePageProps)
   if (viewer && viewer.id !== profile.id && await areUsersBlocked(viewer.id, profile.id)) {
     return <main className="disloop-shell public-profile-page"><BackButton /><section className="section-view section-empty" aria-labelledby="profile-unavailable"><h1 id="profile-unavailable">Profile unavailable</h1><p>This profile is unavailable because one of you has blocked the other account.</p></section></main>
   }
-  const [posts, reels] = await Promise.all([
-    getNewsPostsByAuthor(profile.id),
-    getReels(undefined, undefined, profile.id),
-  ])
   let profileVisitCount: number | null = null
   if (viewer && viewer.id !== profile.id) {
     await recordProfileVisit(profile.id, viewer.id).catch(() => undefined)
@@ -65,8 +59,6 @@ export default async function PermanentProfilePage({ params }: ProfilePageProps)
       <BackButton />
       <ProfileSection
         profile={profile}
-        posts={posts}
-        reels={reels}
         locale="en"
         profileVisitCount={profileVisitCount}
         viewer={viewer}

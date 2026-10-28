@@ -14,9 +14,11 @@ import { parseJsonBody } from '@/lib/validation'
 import { z } from 'zod'
 import { findMentionUsernames, notifyMentions } from '@/lib/social'
 import { isPrivateMediaUrlForUser, isPublicBlobUrlForUser } from '@/lib/private-media'
+import { isReelThumbnailConfirmed, isReelUploadConfirmed } from '@/lib/reel-media'
 import { getReels } from '@/lib/reels'
 import { getCurrentUser } from '@/lib/session'
 import { isUuid } from '@/lib/dm'
+import { isValidUploadPath } from '@/lib/upload-config'
 
 function isAllowedReelUrl(value: string, userId: string) {
   return isPrivateMediaUrlForUser(value, 'reels', userId) || isPublicBlobUrlForUser(value, 'reels', userId)
@@ -55,17 +57,20 @@ export async function POST(request: NextRequest) {
   const access = await requireLoggedInServerMember(request, { requireDiscordMembership: true })
   if (!access.ok) return access.response
   const user = access.user
-  const rateLimit = await rateLimitResponse(`reels:${user.id}`, 4, 3600)
+  const rateLimit = await rateLimitResponse(`reels:${user.id}`, 5, 300)
   if (rateLimit) return rateLimit
 
   const data = await parseJsonBody(request, z.object({
     videoUrl: z.string().max(2048),
     caption: z.string().trim().max(500).optional(),
+    thumbnailPath: z.string().max(256).optional(),
   }).strict())
   if (!data) return NextResponse.json({ error: 'invalid_reel' }, { status: 400 })
   const videoUrl = data.videoUrl
   const caption = data.caption ?? ''
+  const thumbnailPath = data.thumbnailPath
   if (!isAllowedReelUrl(videoUrl, user.id) || findMentionUsernames(caption).length > 5 || countWords(caption) > 100) return NextResponse.json({ error: 'invalid_reel' }, { status: 400 })
+  if (thumbnailPath && !isValidUploadPath(thumbnailPath, 'reelThumbnail', user.id)) return NextResponse.json({ error: 'invalid_reel' }, { status: 400 })
 
   let tags: string[]
   try {
@@ -75,8 +80,25 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    if (!await isReelUploadConfirmed(videoUrl, user.id)) {
+      return NextResponse.json({ error: 'reel_media_unavailable' }, { status: 400 })
+    }
+    if (thumbnailPath && !await isReelThumbnailConfirmed(thumbnailPath, user.id)) {
+      return NextResponse.json({ error: 'reel_thumbnail_unavailable' }, { status: 400 })
+    }
+  } catch (error) {
+    return NextResponse.json(apiFailurePayload('reel_media_unavailable', error, 'POST /api/reels:media_verification'), { status: 502 })
+  }
+
+  try {
     await db.update(disloopUsers).set({ isMember: true, updatedAt: new Date() }).where(eq(disloopUsers.id, user.id))
-    const [created] = await db.insert(disloopReels).values({ authorId: user.id, videoUrl, caption, tags }).returning({
+    const [created] = await db.insert(disloopReels).values({
+      authorId: user.id,
+      videoUrl,
+      caption,
+      tags,
+      ...(thumbnailPath ? { coverPath: thumbnailPath } : {}),
+    }).returning({
       id: disloopReels.id,
       authorId: disloopReels.authorId,
       videoUrl: disloopReels.videoUrl,

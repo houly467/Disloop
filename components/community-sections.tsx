@@ -28,6 +28,9 @@ import { ProfileMusicPlayer } from '@/components/profile-music-player'
 import { getProfileMusicEmbedUrl } from '@/lib/profile-music'
 import { resetReelFeedPosition } from '@/lib/reel-feed-position'
 import { getProfileUrl } from '@/lib/profile-url'
+import { shouldTrackReelView } from '@/lib/reel-view-session'
+import { createReelThumbnail } from '@/lib/reel-thumbnail'
+import { ProfileContentTabs } from '@/components/profile-content-tabs'
 
 export type CommunityProfile = (CurrentUser & { isNewAccount?: boolean; nameStyle?: string | null; customTitle?: string | null; profileTheme?: string; profileLink?: string | null }) | PublicProfile
 
@@ -47,7 +50,7 @@ const profileCopy = {
     displayName: 'Display name', username: 'Username', bio: 'Bio', location: 'Location', linkedAccounts: 'Linked accounts', avatar: 'Profile photo', banner: 'Profile banner', chooseImage: 'Choose image', removeImage: 'Remove image', imageTooLarge: 'Avatars can be up to 5 MB and banners up to 8 MB.', imageUploadFailed: 'The image could not upload. Please try again.', usernameHint: '1–2 character handles require the Verified badge; regular usernames must be at least 3 characters long.', usernameAvailable: 'Username is available.', usernameChecking: 'Checking username…', usernameCheckFailed: 'Could not check username availability.', shortUsernameNeedsVerified: '1–2 character handles require the Verified badge; regular usernames must be at least 3 characters long.',
     discord: 'Discord', website: 'Website', instagram: 'Instagram', youtube: 'YouTube', github: 'GitHub', twitch: 'Twitch',
     posts: 'News', postsStat: 'Posts', reels: 'Reels', xp: 'XP', badges: 'Community badges', earned: 'Earned', next: 'Next milestone',
-    copy: 'Copy profile link', copied: 'Link copied', copyError: 'Could not copy the profile link.', saveError: 'Could not save your profile.', usernameTaken: 'Username is already taken.',
+    copy: 'Copy profile link', copied: 'Link copied', copyError: 'Could not copy the profile link.', saveError: 'Could not save your profile.', usernameTaken: 'Username is already taken.', usernameChangeLimited: 'You can change your username once every 7 days. Please try again later.',
     invalid: 'Use at least 3 characters for a regular username. 1–2 character handles require the Verified badge.', empty: 'No updates have been shared yet.', verified: 'Discord connected', privateVisits: 'Your profile visits', lastSevenDays: 'Last 7 days', noVisits: 'No visits yet',
     showVisits: 'Show profile visits publicly', showVisitsHint: 'Let visitors see the number of member visits.', profileVisits: 'Profile visits', views: 'visits', followers: 'followers', followingCount: 'following', hideLikes: 'Hide my likes from lists', hideLikesHint: 'Your likes will not appear in member lists.', hideReposts: 'Hide my reposts', hideRepostsHint: 'Only you can see your reposts on your profile.', likesTab: 'Likes', message: 'Message', follow: 'Follow', following: 'Following', followBack: 'Follow Back', followError: 'Could not update follow status.', pinPost: 'Pin to profile', unpinPost: 'Unpin post', pinnedPost: 'Pinned to profile', pinError: 'Could not update your pinned post.', pinUnavailable: 'Profile pinning is unavailable until the database update is applied.'
   },
@@ -56,34 +59,13 @@ const profileCopy = {
     displayName: 'اسم العرض', username: 'اسم المستخدم', bio: 'نبذة', location: 'الموقع', linkedAccounts: 'الحسابات المرتبطة', avatar: 'الصورة الشخصية', banner: 'غلاف الملف الشخصي', chooseImage: 'اختر صورة', removeImage: 'إزالة الصورة', imageTooLarge: 'يجب ألا يتجاوز حجم الصورة الشخصية ٥ ميغابايت والغلاف ٨ ميغابايت.', imageUploadFailed: 'تعذر رفع الصورة. حاول مرة أخرى.', usernameHint: 'تتطلب أسماء المستخدم من حرف أو حرفين شارة التوثيق؛ ويجب أن يتكون اسم المستخدم العادي من ٣ أحرف على الأقل.', usernameAvailable: 'اسم المستخدم متاح.', usernameChecking: 'جارٍ التحقق من اسم المستخدم…', usernameCheckFailed: 'تعذر التحقق من توفر اسم المستخدم.', shortUsernameNeedsVerified: 'تتطلب أسماء المستخدم من حرف أو حرفين شارة التوثيق؛ ويجب أن يتكون اسم المستخدم العادي من ٣ أحرف على الأقل.',
     discord: 'Discord', website: 'الموقع', instagram: 'Instagram', youtube: 'YouTube', github: 'GitHub', twitch: 'Twitch',
     posts: 'الأخبار', postsStat: 'المنشورات', reels: 'ريلز', xp: 'نقاط الخبرة', badges: 'شارات المجتمع', earned: 'مكتسبة', next: 'الإنجاز التالي',
-    copy: 'نسخ رابط الملف', copied: 'تم نسخ الرابط', copyError: 'تعذر نسخ رابط الملف الشخصي.', saveError: 'تعذر حفظ الملف الشخصي.', usernameTaken: 'اسم المستخدم مستخدم بالفعل.',
+    copy: 'نسخ رابط الملف', copied: 'تم نسخ الرابط', copyError: 'تعذر نسخ رابط الملف الشخصي.', saveError: 'تعذر حفظ الملف الشخصي.', usernameTaken: 'اسم المستخدم مستخدم بالفعل.', usernameChangeLimited: 'يمكنك تغيير اسم المستخدم مرة واحدة كل ٧ أيام. يرجى المحاولة لاحقًا.',
     invalid: 'يجب أن يتكون اسم المستخدم العادي من ٣ أحرف على الأقل. تتطلب الأسماء من حرف أو حرفين شارة التوثيق.', empty: 'لم تتم مشاركة أي تحديثات بعد.', verified: 'Discord متصل', privateVisits: 'زيارات ملفك', lastSevenDays: 'آخر ٧ أيام', noVisits: 'لا توجد زيارات بعد',
     showVisits: 'إظهار زيارات الملف', showVisitsHint: 'اسمح للزوار برؤية عدد زيارات الأعضاء.', profileVisits: 'زيارات الملف', views: 'زيارة', followers: 'متابع', followingCount: 'يتابع', hideLikes: 'إخفاء إعجاباتي من القوائم', hideLikesHint: 'لن تظهر إعجاباتك في قوائم الأعضاء.', hideReposts: 'إخفاء إعادات النشر', hideRepostsHint: 'ستظهر إعادات النشر لك فقط في ملفك.', likesTab: 'الإعجابات', message: 'مراسلة', follow: 'متابعة', following: 'تتابعه', followBack: 'متابعة متبادلة', followError: 'تعذر تحديث المتابعة.', pinPost: 'تثبيت في الملف الشخصي', unpinPost: 'إلغاء تثبيت المنشور', pinnedPost: 'مثبت في الملف الشخصي', pinError: 'تعذر تحديث المنشور المثبت.', pinUnavailable: 'ميزة تثبيت المنشور غير متاحة حتى تطبيق تحديث قاعدة البيانات.'
   },
 } satisfies Record<Locale, Record<string, string>>
 
 const linkFields: ProfileLinkField[] = ['website', 'instagram', 'youtube', 'github', 'twitch']
-
-type ProfileRepost = {
-  type: 'news' | 'reel' | 'daily'
-  id: string
-  createdAt: string
-  title?: string
-  body?: string
-  caption?: string
-  coverUrl?: string | null
-  videoUrl?: string
-  authorId: string
-  authorName: string
-  authorUsername: string
-  authorAvatar: string | null
-}
-
-async function fetchProfileReposts(url: string) {
-  const response = await fetch(url, { cache: 'no-store' })
-  if (!response.ok) throw new Error('reposts_failed')
-  return response.json() as Promise<{ reposts: ProfileRepost[] }>
-}
 
 type ProfileVisitStats = { total: number; visits: { date: string; count: number }[] }
 
@@ -106,19 +88,8 @@ async function fetchFollowCounts(url: string): Promise<FollowCounts> {
   return result
 }
 
-function earnedBadges(profile: CommunityProfile, posts: NewsPost[], reels: CommunityReel[], locale: Locale) {
-  return [
-    { id: 'first-post', label: locale === 'ar' ? 'أول منشور' : 'First note', detail: locale === 'ar' ? 'ش��ركت منشورًا إخباريًا' : 'Shared a news post', earned: posts.length > 0 },
-    { id: 'first-reel', label: locale === 'ar' ? 'على الكاميرا' : 'On camera', detail: locale === 'ar' ? 'نشرت ريلز للمجتمع' : 'Published a community Reel', earned: reels.length > 0 },
-    { id: 'community-voice', label: locale === 'ar' ? 'صوت المجتمع' : 'Community voice', detail: locale === 'ar' ? 'اكتسبت ١٠٠ نقطة خبرة' : 'Earned 100 XP', earned: profile.xp >= 100 },
-    { id: 'community-regular', label: locale === 'ar' ? 'عضو نشط' : 'Community regular', detail: locale === 'ar' ? 'اكتسبت ٥٠٠ نقطة خبرة' : 'Earned 500 XP', earned: profile.xp >= 500 },
-  ]
-}
-
-export function ProfileSection({ profile, posts, reels, locale, editable, profileVisitCount, onProfileSaved, viewer, onSignIn, permanentPath }: {
+export function ProfileSection({ profile, locale, editable, profileVisitCount, onProfileSaved, viewer, onSignIn, permanentPath }: {
   profile: CommunityProfile
-  posts: NewsPost[]
-  reels: CommunityReel[]
   locale: Locale
   editable?: boolean
   profileVisitCount?: number | null
@@ -128,14 +99,7 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
   permanentPath?: string
 }) {
   const labels = profileCopy[locale]
-  const [profileTab, setProfileTab] = useState<'posts' | 'reposts' | 'likes'>('posts')
   const [relationshipDirection, setRelationshipDirection] = useState<'followers' | 'following' | null>(null)
-  const { data: repostData } = useSWR<{ reposts: ProfileRepost[] }>(`/api/social/reposts?userId=${encodeURIComponent(profile.id)}`, fetchProfileReposts)
-  const { data: likedReelData } = useSWR<{ reels: CommunityReel[] }>(editable ? '/api/reels?liked=true' : null, async (url: string) => {
-    const response = await fetch(url, { cache: 'no-store' })
-    if (!response.ok) throw new Error('liked_reels_failed')
-    return response.json() as Promise<{ reels: CommunityReel[] }>
-  })
   const followKey = !editable && viewer && viewer.id !== profile.id ? `/api/dm/follows/${encodeURIComponent(profile.id)}` : null
   const { data: followData, mutate: mutateFollow } = useSWR<{ following: boolean; followsYou: boolean }>(followKey, fetchFollowStatus)
   const countsUrl = `/api/social/follows?userId=${encodeURIComponent(profile.id)}&countsOnly=true`
@@ -264,10 +228,6 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
           : usernameAvailability?.available ? labels.usernameAvailable
             : checkingUsername ? labels.usernameChecking : ''
   const usernameAvailable = Boolean(usernameAvailability?.valid && usernameAvailability.available)
-  const orderedPosts = useMemo(() => pinData?.postId
-    ? [...posts].sort((first, second) => Number(second.id === pinData.postId) - Number(first.id === pinData.postId))
-    : posts, [pinData?.postId, posts])
-
   async function togglePinnedPost(postId: string) {
     if (!editable || !pinData?.available) return
     const nextPostId = pinData.postId === postId ? null : postId
@@ -383,7 +343,7 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
       if (!response.ok || !result.profile) {
         const code = result.reason ?? result.error ?? 'save_failed'
         console.error('[profile] save request failed', { status: response.status, message: code })
-        setError(result.error === 'username_taken' ? labels.usernameTaken : result.error === 'username_verification_required' ? labels.shortUsernameNeedsVerified : result.error === 'invalid_profile' ? labels.invalid : localizedUploadError(code, locale, labels.saveError))
+        setError(result.error === 'username_taken' ? labels.usernameTaken : result.error === 'username_change_limited' ? labels.usernameChangeLimited : result.error === 'username_verification_required' ? labels.shortUsernameNeedsVerified : result.error === 'invalid_profile' ? labels.invalid : localizedUploadError(code, locale, labels.saveError))
         return
       }
       onProfileSaved?.(result.profile)
@@ -459,11 +419,21 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
       ) : (
         <>
           <p className="profile-bio">{profile.bio ? <RichText text={profile.bio} /> : labels.about}</p>
-          <div className="profile-follow-stats" aria-label={locale === 'ar' ? 'إحصاءات الملف الشخصي' : 'Profile statistics'}>
-            <button type="button" className="profile-stat-item" aria-label={`${posts.length + reels.length} ${labels.postsStat}`} onClick={() => setProfileTab('posts')}><strong>{(posts.length + reels.length).toLocaleString(locale)}</strong><span>{labels.postsStat}</span></button>
-            <button type="button" className="profile-stat-item" onClick={() => setRelationshipDirection('followers')}><strong>{(liveRelationshipCounts?.followersCount ?? relationshipCounts.followersCount).toLocaleString(locale)}</strong><span>{labels.followers}</span></button>
-            <button type="button" className="profile-stat-item" onClick={() => setRelationshipDirection('following')}><strong>{(liveRelationshipCounts?.followingCount ?? relationshipCounts.followingCount).toLocaleString(locale)}</strong><span>{labels.followingCount}</span></button>
-          </div>
+          <ProfileContentTabs
+            profile={profile}
+            viewer={viewer}
+            locale={locale}
+            editable={Boolean(editable)}
+            onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(permanentPath ?? `/profile/${profile.id}`)}`))}
+            followerCount={liveRelationshipCounts?.followersCount ?? relationshipCounts.followersCount}
+            followingCount={liveRelationshipCounts?.followingCount ?? relationshipCounts.followingCount}
+            onOpenRelationship={setRelationshipDirection}
+            pinPostId={pinData?.postId}
+            canPinPost={Boolean(editable && pinData?.available)}
+            onTogglePostPin={(postId) => void togglePinnedPost(postId)}
+          />
+          {pinError && <p className="profile-action-error" role="alert">{pinError}</p>}
+          {editable && pinData?.available === false && <p className="profile-action-error" role="status">{labels.pinUnavailable}</p>}
           <div className="profile-details">
             <div><span>{labels.discord}</span><strong dir="ltr">@{profile.discordUsername}</strong></div>
             {profile.location && <div><span>{labels.location}</span><strong><MapPin aria-hidden="true" />{profile.location}</strong></div>}
@@ -486,40 +456,20 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
             <div className="profile-visits-heading"><h2 id="profile-visits-title">{labels.privateVisits} · {labels.lastSevenDays}</h2><strong>{visitStats.total.toLocaleString(locale === 'ar' ? 'ar' : 'en')}</strong></div>
             {visitStats.visits.some((visit) => visit.count > 0) ? <ol className="profile-visits-chart" aria-label={labels.lastSevenDays}>{visitStats.visits.map((visit) => <li key={visit.date} aria-label={`${new Date(`${visit.date}T00:00:00.000Z`).toLocaleDateString(locale === 'ar' ? 'ar' : 'en', { weekday: 'long', timeZone: 'UTC' })}: ${visit.count}`}><div className="profile-visits-bar"><span style={{ height: `${Math.max(4, (visit.count / maxDailyVisits) * 100)}%` }} /></div><small>{visit.count}</small><span>{new Date(`${visit.date}T00:00:00.000Z`).toLocaleDateString(locale === 'ar' ? 'ar' : 'en', { weekday: 'short', timeZone: 'UTC' })}</span></li>)}</ol> : <p className="profile-visits-empty">{labels.noVisits}</p>}
           </section>}
-          <section className="profile-posts" aria-labelledby="profile-posts-title">
-            {pinError && <p className="profile-action-error" role="alert">{pinError}</p>}
-            {editable && pinData?.available === false && <p className="profile-action-error" role="status">{labels.pinUnavailable}</p>}
-            <div className="profile-content-tabs" role="tablist" aria-label={locale === 'ar' ? 'محتوى الملف الشخصي' : 'Profile content'}>
-              <button type="button" role="tab" aria-selected={profileTab === 'posts'} className={profileTab === 'posts' ? 'profile-content-tab profile-content-tab-active' : 'profile-content-tab'} onClick={() => setProfileTab('posts')}>{labels.postsTab}<span>{posts.length + reels.length}</span></button>
-              <button type="button" role="tab" aria-selected={profileTab === 'reposts'} className={profileTab === 'reposts' ? 'profile-content-tab profile-content-tab-active' : 'profile-content-tab'} onClick={() => setProfileTab('reposts')}>{labels.repostsTab}<span>{repostData?.reposts.length ?? 0}</span></button>
-              {editable && <button type="button" role="tab" aria-selected={profileTab === 'likes'} className={profileTab === 'likes' ? 'profile-content-tab profile-content-tab-active' : 'profile-content-tab'} onClick={() => setProfileTab('likes')}>{labels.likesTab}<span>{likedReelData?.reels.length ?? 0}</span></button>}
-            </div>
-            {profileTab === 'posts' ? posts.length || reels.length ? <div className="news-list">
-              {orderedPosts.map((post) => <article className="search-post" key={post.id}>
-                <UserName userId={profile.id} name={profile.displayName} username={profile.username} isNewAccount={profile.isNewAccount} nameStyle={profile.nameStyle} customTitle={profile.customTitle} locale={locale} />
-                <span className="category-pill">{post.category}</span>
-                {pinData?.postId === post.id && <span className="profile-pinned-label"><Pin aria-hidden="true" />{labels.pinnedPost}</span>}
-                {editable && pinData?.available && <button className="profile-pin-button" type="button" onClick={() => void togglePinnedPost(post.id)}><Pin aria-hidden="true" />{pinData.postId === post.id ? labels.unpinPost : labels.pinPost}</button>}
-                <h3>{post.title}</h3><p><RichText text={post.body} /></p>
-                <PostEngagement type="news" contentId={post.id} authorId={profile.id} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(permanentPath ?? `/profile/${profile.id}`)}`))} />
-              </article>)}
-              {reels.map((reel) => <article className="search-post" key={reel.id}><UserName userId={profile.id} name={profile.displayName} username={profile.username} isNewAccount={profile.isNewAccount} nameStyle={profile.nameStyle} customTitle={profile.customTitle} locale={locale} /><span className="category-pill">{labels.reels}</span><h3>{reel.caption ? <RichText text={reel.caption} /> : labels.reels}</h3><video className="profile-reel-player" controls playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.reels} /><PostEngagement type="reel" contentId={reel.id} authorId={profile.id} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(permanentPath ?? `/profile/${profile.id}`)}`))} /></article>)}
-            </div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Video aria-hidden="true" /></span><h2>{labels.empty}</h2></div> : profileTab === 'likes' ? likedReelData?.reels.length ? <div className="news-list">{likedReelData.reels.map((reel) => <article className="search-post" key={reel.id}><h3>{reel.caption ? <RichText text={reel.caption} /> : labels.reels}</h3><video className="profile-reel-player" controls playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.reels} /><PostEngagement type="reel" contentId={reel.id} authorId={reel.authorId} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(permanentPath ?? `/profile/${profile.id}`)}`))} /></article>)}</div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Heart aria-hidden="true" /></span><h2>{labels.empty}</h2></div> : repostData?.reposts.length ? <div className="news-list">{repostData.reposts.map((repost) => <article className="search-post profile-repost-card" key={`${repost.type}-${repost.id}`}><span className="profile-repost-label"><Repeat2 aria-hidden="true" />{labels.repostedBy} @{profile.username}</span><span className="category-pill">{repost.type === 'reel' ? labels.reels : repost.type}</span><h3>{repost.type === 'reel' ? repost.caption || labels.reels : repost.type === 'news' ? repost.title : locale === 'ar' ? 'منشور يومي' : 'Daily post'}</h3>{repost.type !== 'reel' && repost.body && <p><RichText text={repost.body} /></p>}{repost.type === 'reel' && repost.videoUrl && <video className="profile-reel-player" controls playsInline preload="metadata" src={repost.videoUrl} />}<a className="profile-repost-original" href={`/#${repost.type}-${repost.id}`}>{repost.authorName} · @{repost.authorUsername}</a><PostEngagement type={repost.type} contentId={repost.id} authorId={repost.authorId} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(permanentPath ?? `/profile/${profile.id}`)}`))} /></article>)}</div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Repeat2 aria-hidden="true" /></span><h2>{labels.empty}</h2></div>}
-            {relationshipDirection && <RelationshipModal
-              userId={profile.id}
-              viewerId={viewer?.id ?? null}
-              initialDirection={relationshipDirection}
-              followersCount={liveRelationshipCounts?.followersCount ?? relationshipCounts.followersCount}
-              followingCount={liveRelationshipCounts?.followingCount ?? relationshipCounts.followingCount}
-              locale={locale}
-              onCountsChange={updateRelationshipCounts}
-              onClose={() => setRelationshipDirection(null)}
-            />}
-            {confirmBlock && <ModalPortal backdropClassName="relationship-modal-backdrop" dialogClassName="profile-block-confirm" labelId="profile-block-confirm-title" onClose={() => setConfirmBlock(false)}>
-              <h2 id="profile-block-confirm-title">{locale === 'ar' ? `حظر @${profile.username}؟` : `Block @${profile.username}?`}</h2>
-              <div className="profile-block-confirm-actions"><button type="button" className="section-secondary-button" onClick={() => setConfirmBlock(false)}>{locale === 'ar' ? 'إلغاء' : 'Cancel'}</button><button type="button" className="profile-block-confirm-button" disabled={moderationBusy} onClick={() => { setConfirmBlock(false); void moderateProfile('block') }}>{locale === 'ar' ? 'حظر' : 'Block'}</button></div>
-            </ModalPortal>}
-          </section>
+          {relationshipDirection && <RelationshipModal
+            userId={profile.id}
+            viewerId={viewer?.id ?? null}
+            initialDirection={relationshipDirection}
+            followersCount={liveRelationshipCounts?.followersCount ?? relationshipCounts.followersCount}
+            followingCount={liveRelationshipCounts?.followingCount ?? relationshipCounts.followingCount}
+            locale={locale}
+            onCountsChange={updateRelationshipCounts}
+            onClose={() => setRelationshipDirection(null)}
+          />}
+          {confirmBlock && <ModalPortal backdropClassName="relationship-modal-backdrop" dialogClassName="profile-block-confirm" labelId="profile-block-confirm-title" onClose={() => setConfirmBlock(false)}>
+            <h2 id="profile-block-confirm-title">{locale === 'ar' ? `حظر @${profile.username}؟` : `Block @${profile.username}?`}</h2>
+            <div className="profile-block-confirm-actions"><button type="button" className="section-secondary-button" onClick={() => setConfirmBlock(false)}>{locale === 'ar' ? 'إلغاء' : 'Cancel'}</button><button type="button" className="profile-block-confirm-button" disabled={moderationBusy} onClick={() => { setConfirmBlock(false); void moderateProfile('block') }}>{locale === 'ar' ? 'حظر' : 'Block'}</button></div>
+          </ModalPortal>}
         </>
       )}
     </section>
@@ -659,6 +609,9 @@ function ReelsSectionContent({ locale, viewer, initialReels, onSignIn, onCreateC
   const feedRef = useRef<HTMLDivElement>(null)
   const activeVideoRef = useRef<HTMLVideoElement | null>(null)
   const videoRefCallbacks = useRef(new Map<string, (video: HTMLVideoElement | null) => void>())
+  const unavailableReelMediaIdsRef = useRef(new Set<string>())
+  const mediaVerificationRef = useRef(new Set<string>())
+  const trackedReelViewIdsRef = useRef(new Map<string, Set<string>>())
   const isMutedRef = useRef(true)
   const playbackRateRef = useRef(1)
   const playbackToggleTimerRef = useRef<number | null>(null)
@@ -672,7 +625,7 @@ function ReelsSectionContent({ locale, viewer, initialReels, onSignIn, onCreateC
     if (!response.ok) throw new Error('bookmarks_failed')
     return response.json()
   })
-  const visibleReels = reels
+  const visibleReels = reels.filter((reel) => !unavailableReelMediaIdsRef.current.has(reel.id))
 
   useEffect(() => {
     let cancelled = false
@@ -686,12 +639,12 @@ function ReelsSectionContent({ locale, viewer, initialReels, onSignIn, onCreateC
       })
       .then((result) => {
         if (cancelled) return
-        const freshReels = result.reels ?? []
+        const freshReels = (result.reels ?? []).filter((reel) => !unavailableReelMediaIdsRef.current.has(reel.id))
         resetReelFeedPosition(feedRef.current, setActiveReelIndex)
         setReels((current) => {
           const justPublished = current.filter((reel) => publishedReelIdsRef.current.has(reel.id))
           const publishedIds = new Set(justPublished.map((reel) => reel.id))
-          return [...justPublished, ...freshReels.filter((reel) => !publishedIds.has(reel.id))]
+          return [...justPublished, ...freshReels.filter((reel) => !publishedIds.has(reel.id) && !unavailableReelMediaIdsRef.current.has(reel.id))]
         })
         setHasMoreReels(freshReels.length >= 30)
       })
@@ -710,7 +663,7 @@ function ReelsSectionContent({ locale, viewer, initialReels, onSignIn, onCreateC
   useEffect(() => {
     setReels((current) => {
       const currentIds = new Set(current.map((reel) => reel.id))
-      const additions = initialReels.filter((reel) => !currentIds.has(reel.id))
+      const additions = initialReels.filter((reel) => !currentIds.has(reel.id) && !unavailableReelMediaIdsRef.current.has(reel.id))
       return additions.length ? [...current, ...additions] : current
     })
   }, [initialReels])
@@ -774,6 +727,57 @@ function ReelsSectionContent({ locale, viewer, initialReels, onSignIn, onCreateC
     })
     video.load()
     if (activeVideoRef.current === video) void video.play().catch(() => undefined)
+  }
+
+  async function handleReelMediaError(reelId: string, videoUrl: string) {
+    setFailedReelMediaIds((current) => new Set(current).add(reelId))
+    if (mediaVerificationRef.current.has(reelId)) return
+
+    mediaVerificationRef.current.add(reelId)
+    try {
+      const response = await fetch(videoUrl, {
+        headers: { Range: 'bytes=0-0' },
+        cache: 'no-store',
+      })
+      if (response.status === 404) {
+        unavailableReelMediaIdsRef.current.add(reelId)
+        setReels((current) => current.filter((reel) => reel.id !== reelId))
+        setFailedReelMediaIds((current) => {
+          const next = new Set(current)
+          next.delete(reelId)
+          return next
+        })
+      }
+      await response.body?.cancel()
+    } catch (error) {
+      console.error('[reels] Could not verify failed media.', { reelId, error })
+    } finally {
+      mediaVerificationRef.current.delete(reelId)
+    }
+  }
+
+  function trackReelView(reelId: string) {
+    if (!viewer) return
+    let sessionStorage: Storage | null = null
+    try {
+      sessionStorage = window.sessionStorage
+    } catch {
+      // In-memory deduplication still prevents repeated requests in this mount.
+    }
+    let trackedIds = trackedReelViewIdsRef.current.get(viewer.id)
+    if (!trackedIds) {
+      trackedIds = new Set()
+      trackedReelViewIdsRef.current.set(viewer.id, trackedIds)
+    }
+    const shouldTrack = shouldTrackReelView(
+      reelId,
+      `disloop-reel-views:${viewer.id}`,
+      trackedIds,
+      sessionStorage,
+    )
+    if (shouldTrack) {
+      void fetch(`/api/reels/${encodeURIComponent(reelId)}/view`, { method: 'POST' }).catch(() => undefined)
+    }
   }
 
   function persistMutePreference(value: boolean) {
@@ -917,12 +921,12 @@ function ReelsSectionContent({ locale, viewer, initialReels, onSignIn, onCreateC
       const result = await response.json() as { reels?: CommunityReel[] }
       const page = result.reels ?? []
       const knownIds = new Set(reels.map((reel) => reel.id))
-      const additions = page.filter((reel) => !knownIds.has(reel.id))
+      const additions = page.filter((reel) => !knownIds.has(reel.id) && !unavailableReelMediaIdsRef.current.has(reel.id))
       if (additions.length === 0) setHasMoreReels(false)
       else setHasMoreReels(page.length >= 30)
       setReels((current) => {
         const currentIds = new Set(current.map((reel) => reel.id))
-        const unseen = additions.filter((reel) => !currentIds.has(reel.id))
+        const unseen = additions.filter((reel) => !currentIds.has(reel.id) && !unavailableReelMediaIdsRef.current.has(reel.id))
         return unseen.length ? [...current, ...unseen] : current
       })
     } catch (error) {
@@ -1017,16 +1021,27 @@ function ReelsSectionContent({ locale, viewer, initialReels, onSignIn, onCreateC
     let stage: 'upload' | 'publish' = 'upload'
     try {
       const { url: videoUrl } = await uploadMedia({ endpoint: '/api/reels/upload', file, kind: 'reel', durationSeconds, multipart: true, onProgress: setProgress })
+      let thumbnailPath: string | undefined
+      try {
+        const thumbnail = await createReelThumbnail(file)
+        const uploadedThumbnail = await uploadMedia({ endpoint: '/api/reels/upload', file: thumbnail, kind: 'reelThumbnail' })
+        thumbnailPath = uploadedThumbnail.pathname
+      } catch (thumbnailError) {
+        console.warn('[reels] thumbnail generation/upload failed', { error: thumbnailError })
+      }
       stage = 'publish'
       const response = await fetch('/api/reels', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videoUrl, caption: caption.trim() }),
+        body: JSON.stringify({ videoUrl, caption: caption.trim(), ...(thumbnailPath ? { thumbnailPath } : {}) }),
       })
-      const result = await response.json() as { reel?: CommunityReel; xp?: number | null; error?: string; reason?: string }
+      const result = await response.json() as { reel?: CommunityReel; xp?: number | null; error?: string; reason?: string; retryAfter?: number }
       if (!response.ok || !result.reel) {
-        console.error('[reels] publish request failed', { status: response.status, message: result.reason ?? result.error ?? 'publish_failed' })
-        throw new Error(result.reason ?? result.error ?? 'publish_failed')
+        const code = response.status === 429 || result.error === 'rate_limited'
+          ? `rate_limited:${result.retryAfter ?? 300}`
+          : result.reason ?? result.error ?? 'publish_failed'
+        console.error('[reels] publish request failed', { status: response.status, message: code })
+        throw new Error(code)
       }
       setReels((current) => [result.reel!, ...current])
       publishedReelIdsRef.current.add(result.reel.id)
@@ -1074,7 +1089,7 @@ function ReelsSectionContent({ locale, viewer, initialReels, onSignIn, onCreateC
         <button className="reel-navigation-button reel-navigation-up" type="button" aria-label={labels.previousReel} disabled={activeReelIndex <= 0} onClick={() => navigateReels(-1)}><ChevronUp aria-hidden="true" /></button>
         <div className="reel-feed" ref={feedRef} role="region" aria-label={labels.title} tabIndex={0}><div className="reel-list">{visibleReels.map((reel, index) => <article className="reel-card reel-slide" id={`reel-${reel.id}`} data-reel-id={reel.id} key={reel.id}>
         <div className="reel-stage">
-        <video ref={getVideoRef(reel.id)} data-reel-id={reel.id} className="reel-video" playsInline preload={index === activeReelIndex ? 'auto' : index === activeReelIndex + 1 ? 'metadata' : 'none'} src={Math.abs(index - activeReelIndex) <= 1 ? reel.videoUrl : undefined} aria-label={reel.caption || labels.title} onError={() => setFailedReelMediaIds((current) => new Set(current).add(reel.id))} onClick={(event) => toggleVideoPlayback(event.currentTarget)} onDoubleClick={(event) => { event.preventDefault(); const video = event.currentTarget; if (!video || !video.isConnected || activeVideoRef.current !== video) return; if (playbackToggleTimerRef.current !== null) window.clearTimeout(playbackToggleTimerRef.current); playbackToggleTimerRef.current = null; const likeButton = video.closest('.reel-slide')?.querySelector<HTMLButtonElement>('[data-reel-like-button]'); likeButton?.click(); setLikeAnimationId(null); window.requestAnimationFrame(() => setLikeAnimationId(reel.id)) }} onPlay={() => {
+        <video ref={getVideoRef(reel.id)} data-reel-id={reel.id} className="reel-video" playsInline preload={index === activeReelIndex ? 'auto' : index === activeReelIndex + 1 ? 'metadata' : 'none'} src={Math.abs(index - activeReelIndex) <= 1 ? reel.videoUrl : undefined} aria-label={reel.caption || labels.title} onError={() => void handleReelMediaError(reel.id, reel.videoUrl)} onClick={(event) => toggleVideoPlayback(event.currentTarget)} onDoubleClick={(event) => { event.preventDefault(); const video = event.currentTarget; if (!video || !video.isConnected || activeVideoRef.current !== video) return; if (playbackToggleTimerRef.current !== null) window.clearTimeout(playbackToggleTimerRef.current); playbackToggleTimerRef.current = null; const likeButton = video.closest('.reel-slide')?.querySelector<HTMLButtonElement>('[data-reel-like-button]'); likeButton?.click(); setLikeAnimationId(null); window.requestAnimationFrame(() => setLikeAnimationId(reel.id)) }} onPlay={() => {
           if (!watchedReelIdsRef.current.includes(reel.id)) {
             watchedReelIdsRef.current = [...watchedReelIdsRef.current, reel.id].slice(-WATCHED_REEL_LIMIT)
             try {
@@ -1083,7 +1098,7 @@ function ReelsSectionContent({ locale, viewer, initialReels, onSignIn, onCreateC
               console.warn('[reels] Could not save watched reels for this session.', error)
             }
           }
-          if (viewer) void fetch(`/api/reels/${encodeURIComponent(reel.id)}/view`, { method: 'POST' }).catch(() => undefined)
+          trackReelView(reel.id)
         }} />
         {failedReelMediaIds.has(reel.id) && <div className="reel-media-fallback" role="status"><p>{labels.mediaFailed}</p><button type="button" className="section-secondary-button" onClick={() => retryReelMedia(reel.id)}>{labels.retry}</button></div>}
         <div className="reel-video-controls">

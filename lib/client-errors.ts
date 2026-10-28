@@ -20,6 +20,7 @@ const messages: Record<ErrorLocale, Record<string, string>> = {
     upload_path_failed: 'Uploads are temporarily unavailable. Please retry.',
     invalid_upload_path: 'Please select the file again and retry.',
     upload_failed: 'The upload failed. Please retry.',
+    reel_media_unavailable: 'The uploaded video could not be verified. Please choose it again and retry.',
   },
   ar: {
     not_logged_in: 'يرجى تسجيل الدخول مرة أخرى.',
@@ -39,17 +40,21 @@ const messages: Record<ErrorLocale, Record<string, string>> = {
     upload_unavailable: 'الرفع غير متاح مؤقتًا. حاول مرة أخرى.',
     upload_path_failed: 'الرفع غير متاح مؤقتًا. حاول مرة أخرى.',
     invalid_upload_path: 'اختر الملف مرة أخرى ثم أعد المحاولة.',
-    upload_failed: 'تعذر رفع الملف. حاول مرة أخرى.'
+    upload_failed: 'تعذر رفع الملف. حاول مرة أخرى.',
+    reel_media_unavailable: 'تعذر التحقق من الفيديو المرفوع. اختره مرة أخرى ثم أعد المحاولة.'
   },
 }
 
 export function localizedUploadError(code: string, locale: ErrorLocale, fallback: string) {
   const [reason, retryAfter] = code.split(':')
   if (reason === 'rate_limited') {
-    const seconds = Math.max(1, Number.parseInt(retryAfter ?? '0', 10) || 1)
+    const parsedRetryAfter = Number.parseInt(retryAfter ?? '', 10)
+    const seconds = Number.isFinite(parsedRetryAfter) && parsedRetryAfter > 0 ? parsedRetryAfter : 300
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = seconds % 60
     return locale === 'ar'
-      ? `طلبات الرفع كثيرة. حاول مرة أخرى بعد ${seconds} ثانية.`
-      : `Too many uploads. Try again in ${seconds} seconds.`
+      ? `طلبات كثيرة. حاول مرة أخرى بعد ${minutes} دقيقة و${remainingSeconds} ثانية.`
+      : `Too many requests. Try again in ${minutes}m ${remainingSeconds}s.`
   }
   return messages[locale][reason] ?? fallback
 }

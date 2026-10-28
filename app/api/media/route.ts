@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
       SELECT (
         EXISTS (SELECT 1 FROM ${disloopNewsPosts} WHERE ${disloopNewsPosts.coverUrl} = ${mediaUrl} AND ${disloopNewsPosts.isHidden} = false)
         OR EXISTS (SELECT 1 FROM ${disloopReels} WHERE ${disloopReels.videoUrl} = ${mediaUrl} AND ${disloopReels.isHidden} = false)
+        OR EXISTS (SELECT 1 FROM ${disloopReels} WHERE ${disloopReels.coverPath} = ${pathname} AND ${disloopReels.isHidden} = false)
         OR EXISTS (SELECT 1 FROM ${disloopStories} WHERE ${disloopStories.mediaUrl} = ${mediaUrl} AND ${disloopStories.expiresAt} > now())
         OR EXISTS (SELECT 1 FROM ${disloopDailyPosts} WHERE ${disloopDailyPosts.mediaUrl} = ${mediaUrl} AND ${disloopDailyPosts.isHidden} = false)
         OR EXISTS (SELECT 1 FROM ${disloopUsers} WHERE ${disloopUsers.profileAvatarUrl} = ${mediaUrl} OR ${disloopUsers.profileBannerUrl} = ${mediaUrl})

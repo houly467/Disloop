@@ -4,7 +4,11 @@ export const UPLOAD_CONFIG = {
     allowedContentTypes: ['video/mp4', 'video/webm'],
     maximumSizeInBytes: 40 * 1024 * 1024,
     maximumDurationSeconds: 60,
-    dailyLimit: 5,
+  },
+  reelThumbnail: {
+    folder: 'reel-thumbnails',
+    allowedContentTypes: ['image/webp'],
+    maximumSizeInBytes: 250 * 1024,
   },
   story: {
     folder: 'daily',

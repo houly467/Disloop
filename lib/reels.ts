@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { isNewAccount } from '@/lib/new-account'
 import { disloopReelLikes, disloopReels, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
 import { shuffleReels } from '@/lib/reel-feed-order'
+import { filterReelsWithExistingMedia } from '@/lib/reel-media'
 
 export type CommunityReel = {
   id: string
@@ -92,7 +93,8 @@ export async function getReels(
     .leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id))
     .where(and(...filters))
     .orderBy(desc(disloopReels.createdAt))
-    .limit(options.shuffle ? 100 : 30)
-  const orderedRows = options.shuffle ? shuffleReels(rows).slice(0, 30) : rows
+    .limit(100)
+  const availableRows = await filterReelsWithExistingMedia(rows)
+  const orderedRows = options.shuffle ? shuffleReels(availableRows).slice(0, 30) : availableRows.slice(0, 30)
   return orderedRows.map(serializeReel)
 }

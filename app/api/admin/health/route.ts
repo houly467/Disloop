@@ -3,6 +3,7 @@ import { list } from '@vercel/blob'
 import { sql } from 'drizzle-orm'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getDatabaseConnectionString } from '@/lib/db/connection-url'
 import { checkDiscordGuildHealth } from '@/lib/discord'
 import { getDiscordMemberRoles } from '@/lib/discord-community'
 import { hasDiscordAdminRole } from '@/lib/discord-admin'
@@ -23,7 +24,7 @@ const EXPECTED_TABLE_COLUMNS = {
   disloop_news_posts: ['id', 'author_id', 'title', 'body', 'category', 'cover_url', 'tags', 'pinned', 'accent_color', 'replies_from_following', 'pinned_comment_id', 'is_hidden', 'is_seed', 'created_at', 'updated_at'],
   disloop_daily_posts: ['id', 'author_id', 'body', 'media_url', 'replies_from_following', 'tags', 'created_at', 'is_hidden'],
   disloop_stories: ['id', 'author_id', 'body', 'media_url', 'created_at', 'expires_at'],
-  disloop_reels: ['id', 'author_id', 'video_url', 'caption', 'replies_from_following', 'tags', 'is_hidden', 'moderated_at', 'moderated_by', 'created_at', 'updated_at'],
+  disloop_reels: ['id', 'author_id', 'video_url', 'caption', 'replies_from_following', 'tags', 'is_hidden', 'cover_path', 'is_pinned', 'moderated_at', 'moderated_by', 'created_at', 'updated_at'],
   disloop_likes: ['content_type', 'content_id', 'user_id', 'created_at'],
   disloop_reel_likes: ['reel_id', 'user_id', 'created_at'],
   disloop_comments: ['id', 'content_type', 'content_id', 'author_id', 'thread_root_id', 'body', 'is_hidden', 'is_pinned', 'created_at'],
@@ -47,6 +48,7 @@ const EXPECTED_INDEXES = [
   'disloop_users_username_lower_unique',
   'disloop_news_created_at_idx', 'disloop_news_visible_created_idx', 'disloop_news_tags_gin_idx',
   'disloop_reels_visible_created_idx', 'disloop_reels_visible_created_id_idx', 'disloop_reels_tags_gin_idx',
+  'disloop_reels_profile_created_idx', 'disloop_news_author_created_idx',
   'disloop_stories_expiry_idx',
   'disloop_daily_posts_visible_created_idx', 'disloop_daily_posts_tags_gin_idx',
   'disloop_xp_events_user_created_idx', 'disloop_dm_conversations_unique_pair', 'disloop_dm_messages_conversation_created_idx',
@@ -100,7 +102,7 @@ export async function GET(request: NextRequest) {
     discordBotToken: Boolean(process.env.DISCORD_BOT_TOKEN),
     discordGuildId: Boolean(process.env.DISCORD_GUILD_ID),
     sessionSecret: Boolean(process.env.SESSION_SECRET && process.env.SESSION_SECRET.length >= 32),
-    databaseUrl: Boolean(process.env.DATABASE_URL),
+    databaseUrl: Boolean(getDatabaseConnectionString()),
     blobReadWriteToken: Boolean(process.env.BLOB_READ_WRITE_TOKEN),
     cronSecret: Boolean(process.env.CRON_SECRET),
     kvRestApiUrl: Boolean(process.env.KV_REST_API_URL),
@@ -118,12 +120,9 @@ export async function GET(request: NextRequest) {
   let missingIndexes: string[] = [...EXPECTED_INDEXES]
 
   try {
-    const databaseUrl = process.env.DATABASE_URL
-    if (databaseUrl) {
-      const parsedUrl = new URL(databaseUrl)
-      host = maskHost(parsedUrl.hostname)
-      hostFingerprint = fingerprint(parsedUrl.hostname)
-    }
+    const parsedUrl = new URL(getDatabaseConnectionString())
+    host = maskHost(parsedUrl.hostname)
+    hostFingerprint = fingerprint(parsedUrl.hostname)
 
     const identityResult = await db.execute(sql`
       select

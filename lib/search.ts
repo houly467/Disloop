@@ -4,6 +4,7 @@ import { disloopDailyPosts, disloopNewsPosts, disloopReels, disloopUserFlair, di
 import { getDailyPostsByTag } from '@/lib/daily'
 import { getNewsPostsByTag } from '@/lib/news'
 import { getReels } from '@/lib/reels'
+import { filterReelsWithExistingMedia } from '@/lib/reel-media'
 import { isNewAccount } from '@/lib/new-account'
 
 export async function searchCommunity(rawQuery: string) {
@@ -28,14 +29,15 @@ export async function searchCommunity(rawQuery: string) {
     db.select({ tag: sql<string>`distinct unnest(tags)` }).from(disloopNewsPosts)
       .where(and(eq(disloopNewsPosts.isHidden, false), sql`exists (select 1 from unnest(${disloopNewsPosts.tags}) t where t ilike ${pattern})`)).limit(12),
   ])
-  const uniqueTags = [...new Set([...hashtags.map((row) => row.tag), ...posts.flatMap((post) => post.tags), ...dailyPosts.flatMap((post) => post.tags), ...reels.flatMap((reel) => reel.tags)])]
+  const availableReels = await filterReelsWithExistingMedia(reels)
+  const uniqueTags = [...new Set([...hashtags.map((row) => row.tag), ...posts.flatMap((post) => post.tags), ...dailyPosts.flatMap((post) => post.tags), ...availableReels.flatMap((reel) => reel.tags)])]
     .filter((tag) => tag.toLocaleLowerCase().includes(term.toLocaleLowerCase())).slice(0, 12)
 
   return {
     members: members.map((member) => ({ ...member, isNewAccount: isNewAccount(member.accountCreatedAt) })),
     posts: posts.map((post) => ({ ...post, createdAt: post.createdAt.toISOString() })),
     dailyPosts: dailyPosts.map((post) => ({ ...post, createdAt: post.createdAt.toISOString() })),
-    reels: reels.map((reel) => ({ ...reel, authorIsNewAccount: isNewAccount(reel.authorCreatedAt), createdAt: reel.createdAt.toISOString() })),
+    reels: availableReels.map((reel) => ({ ...reel, authorIsNewAccount: isNewAccount(reel.authorCreatedAt), createdAt: reel.createdAt.toISOString() })),
     hashtags: uniqueTags,
   }
 }

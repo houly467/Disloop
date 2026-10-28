@@ -54,11 +54,17 @@ export async function GET(request: NextRequest, { params }: RouteProps) {
         nameStyle: disloopUserFlair.nameStyle,
         customTitle: disloopUserFlair.customTitle,
         staffRole: disloopUsers.isStaffRole,
-        hasPendingInvite: sql<boolean>`exists (
-          select 1 from ${disloopGroupInvites}
+        membershipGroupId: sql<string | null>`(
+          select ${disloopGroupMembers.groupId} from ${disloopGroupMembers}
+          where ${disloopGroupMembers.userId} = ${disloopUsers.id}
+          limit 1
+        )`,
+        pendingInviteId: sql<string | null>`(
+          select ${disloopGroupInvites.id} from ${disloopGroupInvites}
           where ${disloopGroupInvites.groupId} = ${id}
             and ${disloopGroupInvites.inviteeId} = ${disloopUsers.id}
             and ${disloopGroupInvites.expiresAt} > now()
+          limit 1
         )`,
       }).from(disloopUsers)
         .leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id))
@@ -66,14 +72,6 @@ export async function GET(request: NextRequest, { params }: RouteProps) {
           eq(disloopUsers.isSeed, false),
           ne(disloopUsers.id, user.id),
           or(ilike(disloopUsers.usernameDisplay, pattern), ilike(disloopUsers.displayName, pattern)),
-          notExists(db.select({ userId: disloopGroupMembers.userId }).from(disloopGroupMembers)
-            .where(eq(disloopGroupMembers.userId, disloopUsers.id))),
-          notExists(db.select({ id: disloopGroupInvites.id }).from(disloopGroupInvites)
-            .where(and(
-              eq(disloopGroupInvites.groupId, id),
-              eq(disloopGroupInvites.inviteeId, disloopUsers.id),
-              gt(disloopGroupInvites.expiresAt, new Date()),
-            ))),
           notExists(db.select({ blockerId: disloopBlocks.blockerId }).from(disloopBlocks)
             .where(or(
               and(eq(disloopBlocks.blockerId, user.id), eq(disloopBlocks.blockedId, disloopUsers.id)),
@@ -83,7 +81,11 @@ export async function GET(request: NextRequest, { params }: RouteProps) {
         .orderBy(asc(disloopUsers.displayName))
         .limit(20)
       return NextResponse.json({
-        people: people.map(({ accountCreatedAt, ...person }) => ({ ...person, isNewAccount: isNewAccount(accountCreatedAt) })),
+        people: people.map(({ accountCreatedAt, ...person }) => ({
+          ...person,
+          isMember: person.membershipGroupId === id,
+          isNewAccount: isNewAccount(accountCreatedAt),
+        })),
       }, { headers: { 'Cache-Control': 'private, no-store' } })
     }
 
@@ -138,7 +140,6 @@ export async function POST(request: NextRequest, { params }: RouteProps) {
   if (!data) return NextResponse.json({ error: 'invalid_invite' }, { status: 400 })
 
   try {
-    if (await areUsersBlocked(user.id, data.userId)) return NextResponse.json({ error: 'blocked' }, { status: 403 })
     const result = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${data.userId}, 0))`)
       const [group] = await tx.select({ id: disloopGroups.id })
@@ -154,6 +155,7 @@ export async function POST(request: NextRequest, { params }: RouteProps) {
       const [target] = await tx.select({ id: disloopUsers.id })
         .from(disloopUsers).where(eq(disloopUsers.id, data.userId)).limit(1)
       if (!target) return { error: 'user_not_found' as const }
+      if (await areUsersBlocked(user.id, data.userId)) return { error: 'blocked' as const }
 
       const [targetMembership] = await tx.select({ groupId: disloopGroupMembers.groupId })
         .from(disloopGroupMembers)

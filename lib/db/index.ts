@@ -2,9 +2,10 @@ import 'server-only'
 import { attachDatabasePool } from '@vercel/functions'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
+import { getDatabaseConnectionString } from './connection-url'
 import * as schema from './schema'
 
-const connectionString = process.env.DATABASE_URL
+const connectionString = getDatabaseConnectionString()
 const poolConnectionString = connectionString
   ? (() => {
       const url = new URL(connectionString)

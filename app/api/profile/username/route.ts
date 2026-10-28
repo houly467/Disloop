@@ -1,7 +1,7 @@
-import { and, eq, ne } from 'drizzle-orm'
+import { and, eq, ne, sql } from 'drizzle-orm'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { disloopUserBadges, disloopUsernameHistory, disloopUsers } from '@/lib/db/schema'
+import { disloopUserBadges, disloopUsers } from '@/lib/db/schema'
 import { getCurrentUser } from '@/lib/session'
 import { normalizeUsernameForLookup } from '@/lib/users'
 
@@ -34,16 +34,12 @@ export async function GET(request: NextRequest) {
 
   const [existing] = await db.select({ id: disloopUsers.id })
     .from(disloopUsers)
-    .where(and(eq(disloopUsers.usernameLower, normalizedUsername), ne(disloopUsers.id, user.id)))
-    .limit(1)
-  const [reserved] = await db.select({ userId: disloopUsernameHistory.userId })
-    .from(disloopUsernameHistory)
-    .where(eq(disloopUsernameHistory.usernameLower, normalizedUsername))
+    .where(and(sql`lower(${disloopUsers.usernameLower}) = ${normalizedUsername}`, ne(disloopUsers.id, user.id)))
     .limit(1)
 
   return NextResponse.json({
     valid: true,
-    available: !existing && (!reserved || reserved.userId === user.id),
+    available: !existing,
     minimumLength: isVerified ? 2 : 3,
     existingShortUsername: isExistingUsername && normalizedUsername.length < 2,
   }, { headers: { 'Cache-Control': 'no-store' } })

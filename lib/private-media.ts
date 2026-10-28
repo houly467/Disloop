@@ -1,7 +1,7 @@
 const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
-const PRIVATE_MEDIA_PATH_PATTERN = new RegExp(`^(?:daily|reels|chat-media|news|profile)/${UUID_PATTERN}/${UUID_PATTERN}\\.(?:jpg|png|webp|gif|mp4|webm)$`, 'i')
+const PRIVATE_MEDIA_PATH_PATTERN = new RegExp(`^(?:daily|reels|reel-thumbnails|chat-media|news|profile)/${UUID_PATTERN}/${UUID_PATTERN}\\.(?:jpg|png|webp|gif|mp4|webm)$`, 'i')
 
-export type PrivateMediaFolder = 'daily' | 'reels' | 'chat-media' | 'news' | 'profile'
+export type PrivateMediaFolder = 'daily' | 'reels' | 'reel-thumbnails' | 'chat-media' | 'news' | 'profile'
 
 export function privateMediaUrl(pathname: string) {
   return `/api/media?pathname=${encodeURIComponent(pathname)}`

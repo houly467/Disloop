@@ -189,9 +189,18 @@ function getErrorCause(error: unknown): Error | null {
 function redactErrorSecrets(value: string) {
   let safeValue = value
   for (const key of [
+    'PREVIEW_DATABASE_URL',
     'DATABASE_URL',
+    'DATABASE_URL_UNPOOLED',
     'POSTGRES_URL',
     'POSTGRES_URL_NON_POOLING',
+    'POSTGRES_PRISMA_URL',
+    'POSTGRES_HOST',
+    'POSTGRES_DATABASE',
+    'PGHOST',
+    'PGDATABASE',
+    'PGUSER',
+    'PGPASSWORD',
     'DISCORD_BOT_TOKEN',
     'DISCORD_PUBLIC_KEY',
     'DISCORD_CLIENT_SECRET',

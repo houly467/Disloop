@@ -5,7 +5,6 @@ import { disloopReelViews, disloopReels } from '@/lib/db/schema'
 import { areUsersBlocked } from '@/lib/relationship-access'
 import { isUuid } from '@/lib/dm'
 import { requireLoggedInServerMember } from '@/lib/server-member'
-import { rateLimitResponse } from '@/lib/rate-limit'
 
 export async function POST(request: NextRequest, context: { params: Promise<{ reelId: string }> }) {
   const access = await requireLoggedInServerMember(request)
@@ -13,8 +12,6 @@ export async function POST(request: NextRequest, context: { params: Promise<{ re
   const user = access.user
   const { reelId } = await context.params
   if (!isUuid(reelId)) return NextResponse.json({ error: 'invalid_reel' }, { status: 400 })
-  const limited = await rateLimitResponse(`reel-view:${user.id}`, 120, 3600)
-  if (limited) return limited
   try {
     const [reel] = await db.select({ authorId: disloopReels.authorId }).from(disloopReels).where(eq(disloopReels.id, reelId)).limit(1)
     if (!reel || reel.authorId === user.id || await areUsersBlocked(user.id, reel.authorId)) return NextResponse.json({ recorded: false })

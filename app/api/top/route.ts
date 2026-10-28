@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { topRankedContent } from '@/lib/top-ranking'
 import { isNewAccount } from '@/lib/new-account'
+import { filterReelsWithExistingMedia } from '@/lib/reel-media'
 
 export const dynamic = 'force-dynamic'
 
@@ -52,7 +53,12 @@ export async function GET() {
         authorCustomTitle: item.author_custom_title ? String(item.author_custom_title) : null,
       }
     })
-    return NextResponse.json({ posts }, { headers: { 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=600' } })
+    const topReels = posts
+      .filter((post) => post.type === 'reel' && post.mediaUrl)
+      .map((post) => ({ id: String(post.id), videoUrl: String(post.mediaUrl) }))
+    const availableTopReelIds = new Set((await filterReelsWithExistingMedia(topReels)).map((reel) => reel.id))
+    const availablePosts = posts.filter((post) => post.type !== 'reel' || availableTopReelIds.has(String(post.id)))
+    return NextResponse.json({ posts: availablePosts }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     return NextResponse.json(apiFailurePayload('top_unavailable', error, 'GET /api/top'), { status: 500 })
   }

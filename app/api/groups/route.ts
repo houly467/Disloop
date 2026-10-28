@@ -38,8 +38,10 @@ export async function GET(request: NextRequest) {
       xp: disloopGroups.xp,
       rank: sql<number>`(row_number() over (order by ${disloopGroups.xp} desc, ${disloopGroups.createdAt} asc, ${disloopGroups.id} asc))::int`.as('rank'),
     }).from(disloopGroups)
-      .where(eq(disloopGroups.isPrivate, false))
       .as('ranked_groups')
+    const membershipCondition = user
+      ? sql<boolean>`exists (select 1 from ${disloopGroupMembers} where ${disloopGroupMembers.groupId} = ${rankedGroups.id} and ${disloopGroupMembers.userId} = ${user.id})`
+      : sql<boolean>`false`
 
     const groupColumns = {
       id: rankedGroups.id,
@@ -64,8 +66,8 @@ export async function GET(request: NextRequest) {
       : undefined
 
     const [groups, topGroups, myGroup, hasCreatedGroup] = await Promise.all([
-      db.select(groupColumns).from(rankedGroups).where(searchCondition).orderBy(asc(rankedGroups.rank)).limit(30),
-      db.select(groupColumns).from(rankedGroups).where(lte(rankedGroups.rank, 5)).orderBy(asc(rankedGroups.rank)),
+      db.select(groupColumns).from(rankedGroups).where(and(searchCondition, membershipCondition)).orderBy(asc(rankedGroups.rank)).limit(30),
+      db.select(groupColumns).from(rankedGroups).where(and(lte(rankedGroups.rank, 5), membershipCondition)).orderBy(asc(rankedGroups.rank)),
       user
         ? db.select(groupColumns).from(rankedGroups)
           .innerJoin(disloopGroupMembers, eq(disloopGroupMembers.groupId, rankedGroups.id))
@@ -136,7 +138,7 @@ export async function POST(request: NextRequest) {
 
       await tx.update(disloopUsers).set({ hasCreatedGroup: true, updatedAt: new Date() }).where(eq(disloopUsers.id, user.id))
       const [created] = await tx.insert(disloopGroups)
-        .values({ ownerId: user.id, name, description, tag })
+        .values({ ownerId: user.id, name, description, tag, isPrivate: true })
         .returning({ id: disloopGroups.id, name: disloopGroups.name, tag: disloopGroups.tag })
       await tx.insert(disloopGroupMembers).values({ groupId: created.id, userId: user.id, role: 'owner' })
       return { group: created }

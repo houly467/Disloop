@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import useSWR, { mutate } from 'swr'
-import { Bell, Check, Heart, MessageCircle, Repeat2, UserPlus, X } from 'lucide-react'
+import { Bell, Check, Heart, LoaderCircle, MessageCircle, Repeat2, UserPlus, X } from 'lucide-react'
 import { UserName } from '@/components/user-name'
 import type { CurrentUser } from '@/lib/session'
 
@@ -23,7 +23,7 @@ type Notification = {
   actorNameStyle: string | null
   actorCustomTitle: string | null
   viewerFollowingActor: boolean
-  groupInvite: { name: string | null; tag: string | null } | null
+  groupInvite: { id: string; groupId: string | null; name: string | null; tag: string | null; expiresAt: string | null; available: boolean } | null
 }
 type NotificationData = { unreadCount: number; notifications: Notification[]; nextCursor: string | null }
 
@@ -38,6 +38,11 @@ const copy = {
   ar: { title: 'الإشعارات', description: 'أحدث التفاعلات في مجتمعك.', readAll: 'تحديد الكل كمقروء', empty: 'أنت على اطلاع بكل شيء.', follow: 'بدأ بمتابعتك', reply: 'رد على تعليقك', mention: 'أشار إليك', repost: 'أعاد نشر محتواك', like: 'أعجب بالريلز الخاصة بك', andOthers: 'و{count} آخرين', followBack: 'متابعة أيضًا', following: 'تتابعه', invitesDisabled: 'دعوات المجموعات معطلة. انضم إلى مجموعة من دليل المجموعات.', dismiss: 'إخفاء الإشعار', loadEarlier: 'تحميل إشعارات سابقة', error: 'تعذر تحميل الإشعارات.' },
 } satisfies Record<Locale, Record<string, string>>
 
+const inviteCopy = {
+  en: { groupInvite: 'invited you to join a group', accept: 'Accept', decline: 'Decline', unavailable: 'This invitation has expired or is no longer available.', actionFailed: 'Could not respond to the invitation. Please try again.' },
+  ar: { groupInvite: 'دعاك للانضمام إلى مجموعة', accept: 'قبول', decline: 'رفض', unavailable: 'انتهت صلاحية هذه الدعوة أو لم تعد متاحة.', actionFailed: 'تعذرت الاستجابة للدعوة. حاول مرة أخرى.' },
+} satisfies Record<Locale, Record<string, string>>
+
 function notificationText(type: string, locale: Locale) {
   const labels = copy[locale]
   if (type === 'follow') return labels.follow
@@ -45,11 +50,11 @@ function notificationText(type: string, locale: Locale) {
   if (type === 'mention') return labels.mention
   if (type === 'repost') return labels.repost
   if (type === 'like') return labels.like
-  return type === 'group_invite' ? labels.invitesDisabled : (locale === 'ar' ? 'تفاعل مع رسالتك' : 'reacted to your message')
+  return type === 'group_invite' ? inviteCopy[locale].groupInvite : (locale === 'ar' ? 'تفاعل مع رسالتك' : 'reacted to your message')
 }
 
 function iconFor(type: string) {
-  if (type === 'follow') return UserPlus
+  if (type === 'follow' || type === 'group_invite') return UserPlus
   if (type === 'comment_reply' || type === 'mention') return MessageCircle
   if (type === 'repost') return Repeat2
   return Heart
@@ -58,6 +63,8 @@ function iconFor(type: string) {
 export function NotificationsSection({ viewer, locale, onSignIn }: { viewer: CurrentUser | null; locale: Locale; onSignIn: () => void }) {
   const labels = copy[locale]
   const [busyActorId, setBusyActorId] = useState<string | null>(null)
+  const [busyInviteId, setBusyInviteId] = useState<string | null>(null)
+  const [inviteErrorId, setInviteErrorId] = useState<string | null>(null)
   const { data, error, mutate: refresh } = useSWR<NotificationData>(viewer ? '/api/notifications' : null, fetchNotifications, { refreshInterval: 15000 })
   const items = data?.notifications ?? []
   const grouped = useMemo(() => {
@@ -90,6 +97,31 @@ export function NotificationsSection({ viewer, locale, onSignIn }: { viewer: Cur
     }
   }
 
+  async function respondToInvite(item: Notification, action: 'accept' | 'reject') {
+    if (busyInviteId) return
+    setBusyInviteId(item.id)
+    setInviteErrorId(null)
+    try {
+      const response = await fetch(`/api/groups/invites/${encodeURIComponent(item.groupInvite?.id ?? item.targetId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      const result = await response.json() as { error?: string; groupId?: string | null }
+      if (!response.ok) throw new Error(result.error ?? 'invite_response_failed')
+      if (action === 'accept' && result.groupId) {
+        window.location.assign(`/?section=groups&group=${encodeURIComponent(result.groupId)}`)
+        return
+      }
+      await Promise.all([refresh(), mutate('/api/notifications?summary=1')])
+    } catch {
+      setInviteErrorId(item.id)
+      await refresh().catch(() => undefined)
+    } finally {
+      setBusyInviteId(null)
+    }
+  }
+
   async function markAllRead() {
     const response = await fetch('/api/notifications/read', { method: 'POST' })
     if (response.ok) await Promise.all([refresh(), mutate('/api/notifications?summary=1')])
@@ -114,15 +146,23 @@ export function NotificationsSection({ viewer, locale, onSignIn }: { viewer: Cur
                 ? `/#${first.targetType}-${encodeURIComponent(first.targetId)}`
                 : `/?notification=${encodeURIComponent(first.targetId)}`
             const text = first.type === 'like' && group.length > 1 ? `${labels.like} · ${labels.andOthers.replace('{count}', String(group.length - 1))}` : notificationText(first.type, locale)
-            return <article className={`notification-item ${first.readAt ? '' : 'notification-item-unread'}`} key={first.id}>
-              <a className="notification-main" href={href} onClick={() => void markRead(first.id)}>
-                <span className="notification-icon"><Icon aria-hidden="true" /></span>
-                <span className="notification-actor-avatar">{first.actorAvatar ? <img src={first.actorAvatar} alt="" /> : <span>{first.actorName.charAt(0)}</span>}</span>
-                <span className="notification-copy"><UserName userId={first.actorId} name={first.actorName} username={first.actorUsername} isNewAccount={first.actorIsNewAccount} nameStyle={first.actorNameStyle} customTitle={first.actorCustomTitle} locale={locale} /><span>{text}{first.groupInvite?.name ? ` · ${first.groupInvite.name}${first.groupInvite.tag ? ` · #${first.groupInvite.tag}` : ''}` : ''}</span><time dateTime={first.createdAt}>{new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(first.createdAt))}</time></span>
-                {!first.readAt && <span className="notification-unread-dot" aria-label={locale === 'ar' ? 'غير مقروء' : 'Unread'} />}
-              </a>
+            const content = <>
+              <span className="notification-icon"><Icon aria-hidden="true" /></span>
+              <span className="notification-actor-avatar">{first.actorAvatar ? <img src={first.actorAvatar} alt="" /> : <span>{first.actorName.charAt(0)}</span>}</span>
+              <span className="notification-copy"><UserName userId={first.actorId} name={first.actorName} username={first.actorUsername} isNewAccount={first.actorIsNewAccount} nameStyle={first.actorNameStyle} customTitle={first.actorCustomTitle} locale={locale} /><span>{text}{first.groupInvite?.name ? ` · ${first.groupInvite.name}${first.groupInvite.tag ? ` · #${first.groupInvite.tag}` : ''}` : ''}</span><time dateTime={first.createdAt}>{new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(first.createdAt))}</time></span>
+              {!first.readAt && <span className="notification-unread-dot" aria-label={locale === 'ar' ? 'غير مقروء' : 'Unread'} />}
+            </>
+            return <article className={`notification-item ${first.readAt ? '' : 'notification-item-unread'} ${first.type === 'group_invite' ? 'notification-item-group-invite' : ''}`} key={first.id}>
+              {first.type === 'group_invite' ? <div className="notification-main">{content}</div> : <a className="notification-main" href={href} onClick={() => void markRead(first.id)}>{content}</a>}
+              {first.type === 'group_invite' && first.groupInvite?.available
+                ? <div className="notification-invite-actions">
+                    <button className="notification-invite-button" type="button" disabled={Boolean(busyInviteId)} onClick={() => void respondToInvite(first, 'accept')}>{busyInviteId === first.id ? <LoaderCircle aria-hidden="true" className="group-action-spinner" /> : inviteCopy[locale].accept}</button>
+                    <button className="notification-invite-button notification-invite-button-secondary" type="button" disabled={Boolean(busyInviteId)} onClick={() => void respondToInvite(first, 'reject')}>{busyInviteId === first.id ? <LoaderCircle aria-hidden="true" className="group-action-spinner" /> : inviteCopy[locale].decline}</button>
+                  </div>
+                : first.type === 'group_invite' && <span className="notification-invite-unavailable">{inviteCopy[locale].unavailable}</span>}
+              {inviteErrorId === first.id && <p className="notification-action-error" role="alert">{inviteCopy[locale].actionFailed}</p>}
               {first.type === 'follow' && <button className="notification-follow-button" type="button" disabled={first.viewerFollowingActor || busyActorId === first.actorId} onClick={() => void followBack(first)}>{first.viewerFollowingActor ? labels.following : labels.followBack}</button>}
-              <button className="notification-dismiss-button" type="button" aria-label={`${labels.dismiss}: ${first.actorName}`} onClick={() => void dismissGroup(group)}><X aria-hidden="true" /></button>
+              {!(first.type === 'group_invite' && first.groupInvite?.available) && <button className="notification-dismiss-button" type="button" aria-label={`${labels.dismiss}: ${first.actorName}`} onClick={() => void dismissGroup(group)}><X aria-hidden="true" /></button>}
             </article>
           })}
           {data?.nextCursor && <button className="social-load-older" type="button" onClick={async () => {

@@ -1,0 +1,46 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Test database URL selection",
+			"type": "shell",
+			"command": "pnpm.cmd",
+			"args": [
+				"exec",
+				"vitest",
+				"run",
+				"tests/db-connection-url.test.ts"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Check Vercel secret runtime support",
+			"type": "shell",
+			"command": "vercel.cmd",
+			"args": [
+				"env",
+				"run",
+				"--help"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Compare Preview and Production hosts",
+			"type": "shell",
+			"command": "vercel.cmd",
+			"args": [
+				"env",
+				"run",
+				"-e",
+				"preview",
+				"--",
+				"node.exe",
+				"C:\\Users\\turki\\AppData\\Local\\Temp\\disloop-preview-host-check.cjs"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}
