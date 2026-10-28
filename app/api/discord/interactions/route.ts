@@ -1,6 +1,7 @@
 import { after } from 'next/server'
 import { z } from 'zod'
-import { BADGES } from '@/lib/badges'
+import { eq } from 'drizzle-orm'
+import { BADGES, XP_LEVEL_BADGES } from '@/lib/badges'
 import {
   canUseDiscordNameStyleActions,
   getDiscordInteractionSignatureFailure,
@@ -47,6 +48,7 @@ const discordInteractionSchema = z.object({
     name: z.string().optional(),
     custom_id: z.string().optional(),
     components: z.array(z.unknown()).optional(),
+    options: z.array(z.object({ name: z.string(), value: z.string().optional(), options: z.array(z.object({ name: z.string(), value: z.string().optional() }).passthrough()).optional() }).passthrough()).optional(),
   }).passthrough().optional(),
 }).passthrough()
 
@@ -277,16 +279,117 @@ async function registerAdminCommand() {
   const existingResponse = await fetch(commandUrl, { headers, cache: 'no-store', signal: AbortSignal.timeout(5_000) })
   if (!existingResponse.ok) throw new Error(`Discord command lookup returned ${existingResponse.status}.`)
   const existingCommands = await existingResponse.json() as { id?: string; name?: string }[]
-  const existingCommand = Array.isArray(existingCommands) ? existingCommands.find((command) => command.name === 'disloop-admin') : undefined
-  const command = { name: 'disloop-admin', description: 'Open the Disloop badge and moderation panel', type: 1 }
-  const response = await fetch(existingCommand?.id ? `${commandUrl}/${encodeURIComponent(existingCommand.id)}` : commandUrl, {
-    method: existingCommand?.id ? 'PATCH' : 'POST',
-    headers,
-    body: JSON.stringify(command),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(5_000),
+  const commands = [
+    { name: 'disloop-admin', description: 'Open the Disloop badge and moderation panel', type: 1 },
+    { name: 'profile', description: 'Show a Disloop member profile', type: 1, options: [{ type: 3, name: 'username', description: 'Website username (defaults to you)', required: false }] },
+    { name: 'verification', description: 'Review a member verification request', type: 1, options: [
+      { type: 3, name: 'action', description: 'Approve or reject the request', required: true, choices: [{ name: 'Approve', value: 'approve' }, { name: 'Reject', value: 'reject' }] },
+      { type: 3, name: 'request_id', description: 'Verification request ID', required: true },
+    ] },
+  ]
+  for (const command of commands) {
+    const existingCommand = Array.isArray(existingCommands) ? existingCommands.find((existing) => existing.name === command.name) : undefined
+    const response = await fetch(existingCommand?.id ? `${commandUrl}/${encodeURIComponent(existingCommand.id)}` : commandUrl, {
+      method: existingCommand?.id ? 'PATCH' : 'POST',
+      headers,
+      body: JSON.stringify(command),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5_000),
+    })
+    if (!response.ok) throw new Error(`Discord command registration returned ${response.status}.`)
+  }
+}
+
+async function profileCommand(interaction: DiscordInteraction) {
+  if (!isGuildInteraction(interaction)) return ephemeralMessage('This command is only available in the configured Discord server.')
+  const actor = getActor(interaction)
+  if (!actor) return ephemeralMessage('Could not identify your Discord account.')
+  const username = interaction.data?.options?.find((option) => option.name === 'username')?.value?.trim().replace(/^@/, '')
+  try {
+    const [{ db }, { disloopUsers, disloopUserBadges }, { getPublicUserByUsername }, { areUsersBlocked }] = await Promise.all([
+      import('@/lib/db'),
+      import('@/lib/db/schema'),
+      import('@/lib/users'),
+      import('@/lib/relationship-access'),
+    ])
+    const [requester] = await db.select({ id: disloopUsers.id, username: disloopUsers.usernameDisplay }).from(disloopUsers)
+      .where(eq(disloopUsers.discordId, actor.discordId)).limit(1)
+    const targetUsername = username ?? requester?.username
+    if (!targetUsername) return ephemeralMessage('No Disloop profile was found.')
+    const profile = await getPublicUserByUsername(targetUsername)
+    if (!profile || (requester && await areUsersBlocked(requester.id, profile.id))) {
+      return ephemeralMessage('No Disloop profile was found.')
+    }
+    const badgeRows = await db.select({ badgeId: disloopUserBadges.badgeId }).from(disloopUserBadges)
+      .where(eq(disloopUserBadges.userId, profile.id))
+    const badges = badgeRows.map(({ badgeId }) => BADGES.find((badge) => badge.id === badgeId)?.name).filter((name): name is string => Boolean(name))
+    const level = [...XP_LEVEL_BADGES].reverse().find((badge) => profile.xp >= badge.threshold)?.name ?? 'Newcomer'
+    const baseUrl = process.env.SITE_URL?.replace(/\/+$/, '') || 'https://disloop.me'
+    return discordResponse({
+      type: 4,
+      data: {
+        flags: EPHEMERAL_FLAG,
+        allowed_mentions: { parse: [] },
+        embeds: [{
+          title: profile.displayName,
+          url: `${baseUrl}/u/${encodeURIComponent(profile.username)}`,
+          description: `@${profile.username}`,
+          ...(profile.avatarUrl ? { thumbnail: { url: profile.avatarUrl } } : {}),
+          fields: [
+            { name: 'XP / Level', value: `${profile.xp} XP · ${level}`, inline: true },
+            { name: 'Followers', value: String(profile.followerCount), inline: true },
+            { name: 'Badges', value: badges.length ? badges.join(', ').slice(0, 1000) : 'None', inline: false },
+          ],
+        }],
+      },
+    })
+  } catch (error) {
+    console.error('[discord-profile] command failed', { error: error instanceof Error ? error.message : 'Unknown error' })
+    return ephemeralMessage('The profile could not be loaded right now.')
+  }
+}
+
+async function verificationCommand(interaction: DiscordInteraction) {
+  const context = validateGuildAndActor(interaction)
+  if ('error' in context) return ephemeralMessage(context.error ?? 'Could not verify this Discord interaction.')
+  if (!canUseDiscordNameStyleActions(context.roleIds)) return ephemeralMessage('Your Discord roles do not allow that action.')
+  const action = interaction.data?.options?.find((option) => option.name === 'action')?.value
+  const requestId = interaction.data?.options?.find((option) => option.name === 'request_id')?.value
+  if ((action !== 'approve' && action !== 'reject') || !requestId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) {
+    return ephemeralMessage('Provide a valid request ID and choose approve or reject.')
+  }
+  if (!interaction.token) return ephemeralMessage('Discord did not provide a response token.')
+  after(async () => {
+    let content = 'The verification request could not be updated.'
+    try {
+      const [{ db }, { disloopUserBadges, disloopVerificationRequests }] = await Promise.all([
+        import('@/lib/db'),
+        import('@/lib/db/schema'),
+      ])
+      const { and, eq } = await import('drizzle-orm')
+      const [updated] = await db.update(disloopVerificationRequests)
+        .set({ status: action, resolvedAt: new Date() })
+        .where(and(eq(disloopVerificationRequests.id, requestId), eq(disloopVerificationRequests.status, 'open')))
+        .returning({ userId: disloopVerificationRequests.userId })
+      if (!updated) {
+        content = 'That request is already resolved or does not exist.'
+      } else {
+        if (action === 'approve') {
+          await db.insert(disloopUserBadges).values({ userId: updated.userId, badgeId: 'verified' }).onConflictDoNothing()
+        }
+        console.info('[discord-verification] Request reviewed.', { requestId, userId: updated.userId, action, actorDiscordId: context.actor.discordId })
+        content = `Verification request ${action === 'approve' ? 'approved' : 'rejected'}.`
+      }
+    } catch (error) {
+      console.error('[discord-verification] Request review failed.', { requestId, action, error: error instanceof Error ? error.message : 'Unknown error' })
+    }
+    try {
+      await updateOriginalResponse(interaction, content)
+    } catch (error) {
+      console.error('[discord-verification] Could not update the ephemeral response.', error instanceof Error ? error.message : 'Unknown error')
+    }
   })
-  if (!response.ok) throw new Error(`Discord command registration returned ${response.status}.`)
+  return discordResponse({ type: 5, data: { flags: EPHEMERAL_FLAG } })
 }
 
 type GuildActorContext =
@@ -343,6 +446,9 @@ export async function POST(request: Request) {
     })
     return discordResponse({ type: 1 })
   }
+
+  if (interaction.type === 2 && interaction.data?.name === 'profile') return profileCommand(interaction)
+  if (interaction.type === 2 && interaction.data?.name === 'verification') return verificationCommand(interaction)
 
   if (interaction.type === 2 && interaction.data?.name === 'disloop-admin') {
     const context = validateGuildAndActor(interaction)
