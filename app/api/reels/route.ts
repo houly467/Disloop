@@ -9,6 +9,7 @@ import { disloopReels, disloopUsers } from '@/lib/db/schema'
 import { isSameOriginRequest } from '@/lib/security'
 import { countWords, extractTags } from '@/lib/tags'
 import { rateLimitResponse } from '@/lib/rate-limit'
+import { isNewAccount } from '@/lib/new-account'
 import { parseJsonBody } from '@/lib/validation'
 import { z } from 'zod'
 import { findMentionUsernames, notifyMentions } from '@/lib/social'
@@ -24,11 +25,26 @@ function isAllowedReelUrl(value: string, userId: string) {
 export async function GET(request: NextRequest) {
   const viewer = await getCurrentUser()
   const likedOnly = request.nextUrl.searchParams.get('liked') === 'true'
+  const shuffle = request.nextUrl.searchParams.get('shuffle') === '1'
   const userId = request.nextUrl.searchParams.get('userId')
+  const excludeParam = request.nextUrl.searchParams.get('exclude') ?? ''
+  const excludeReelIds = excludeParam ? excludeParam.split(',') : []
   if (userId && !isUuid(userId)) return NextResponse.json({ error: 'invalid_user' }, { status: 400 })
+  if (excludeReelIds.length > 200 || excludeReelIds.some((id) => !isUuid(id))) {
+    return NextResponse.json({ error: 'invalid_reel_exclusions' }, { status: 400 })
+  }
   if (likedOnly && !viewer) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   try {
-    const reels = await getReels(viewer?.id, undefined, userId ?? undefined, { likedOnly, excludeLiked: !likedOnly })
+    const reels = await getReels(viewer?.id, undefined, userId ?? undefined, {
+      likedOnly,
+      excludeLiked: !likedOnly,
+      shuffle,
+      ...(shuffle && excludeReelIds.length ? { excludeReelIds } : {}),
+    })
+    if (shuffle && excludeReelIds.length && reels.length === 0) {
+      const repeatedReels = await getReels(viewer?.id, undefined, userId ?? undefined, { likedOnly, excludeLiked: !likedOnly, shuffle: true })
+      return NextResponse.json({ reels: repeatedReels }, { headers: { 'Cache-Control': 'private, no-store' } })
+    }
     return NextResponse.json({ reels }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     return NextResponse.json(apiFailurePayload('reels_unavailable', error, 'GET /api/reels'), { status: 500 })
@@ -75,6 +91,7 @@ export async function POST(request: NextRequest) {
       authorUsername: user.username,
       authorAvatar: user.avatarUrl,
       authorCreatedAt: user.accountCreatedAt,
+      authorIsNewAccount: isNewAccount(user.accountCreatedAt),
       likeCount: 0,
       likedByMe: false,
     }

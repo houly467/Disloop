@@ -1,6 +1,8 @@
-import { and, arrayContains, desc, eq, exists, not, sql } from 'drizzle-orm'
+import { and, arrayContains, desc, eq, exists, not, notInArray, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
+import { isNewAccount } from '@/lib/new-account'
 import { disloopReelLikes, disloopReels, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
+import { shuffleReels } from '@/lib/reel-feed-order'
 
 export type CommunityReel = {
   id: string
@@ -13,6 +15,7 @@ export type CommunityReel = {
   authorUsername: string
   authorAvatar: string | null
   authorCreatedAt: string | null
+  authorIsNewAccount: boolean
   likeCount: number
   likedByMe: boolean
   authorNameStyle: string | null
@@ -58,6 +61,7 @@ function serializeReel(reel: ReturnType<typeof reelFields> extends never ? never
     ...reel,
     createdAt: reel.createdAt.toISOString(),
     authorCreatedAt: reel.authorCreatedAt?.toISOString() ?? null,
+    authorIsNewAccount: isNewAccount(reel.authorCreatedAt),
     authorName: reel.authorName ?? 'Disloop Community',
     authorUsername: reel.authorUsername ?? 'community-team',
   }
@@ -67,11 +71,12 @@ export async function getReels(
   viewerId?: string,
   tag?: string,
   authorId?: string,
-  options: { likedOnly?: boolean; excludeLiked?: boolean } = {},
+  options: { likedOnly?: boolean; excludeLiked?: boolean; shuffle?: boolean; excludeReelIds?: string[] } = {},
 ) {
   const filters = [eq(disloopReels.isHidden, false)]
   if (tag) filters.push(arrayContains(disloopReels.tags, [tag]))
   if (authorId) filters.push(eq(disloopReels.authorId, authorId))
+  if (options.excludeReelIds?.length) filters.push(notInArray(disloopReels.id, options.excludeReelIds))
   if (viewerId && options.likedOnly) {
     filters.push(exists(db.select({ one: sql`1` }).from(disloopReelLikes)
       .where(and(eq(disloopReelLikes.reelId, disloopReels.id), eq(disloopReelLikes.userId, viewerId)))))
@@ -87,6 +92,7 @@ export async function getReels(
     .leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id))
     .where(and(...filters))
     .orderBy(desc(disloopReels.createdAt))
-    .limit(30)
-  return rows.map(serializeReel)
+    .limit(options.shuffle ? 100 : 30)
+  const orderedRows = options.shuffle ? shuffleReels(rows).slice(0, 30) : rows
+  return orderedRows.map(serializeReel)
 }

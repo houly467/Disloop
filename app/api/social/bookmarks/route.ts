@@ -14,6 +14,7 @@ import { rateLimitResponse } from '@/lib/rate-limit'
 import { requireLoggedInServerMember } from '@/lib/server-member'
 import { parseJsonBody } from '@/lib/validation'
 import { z } from 'zod'
+import { isNewAccount } from '@/lib/new-account'
 
 type SavedBookmark = {
   type: 'news' | 'reel'
@@ -31,6 +32,8 @@ type SavedBookmark = {
     authorName: string | null
     authorUsername: string | null
     authorAvatar: string | null
+    authorCreatedAt: string
+    authorIsNewAccount: boolean
     authorNameStyle: string | null
     authorCustomTitle: string | null
   }
@@ -85,6 +88,7 @@ export async function GET(request: NextRequest) {
         authorName: disloopUsers.displayName,
         authorUsername: disloopUsers.usernameDisplay,
         authorAvatar: disloopUsers.avatarUrl,
+        authorCreatedAt: disloopUsers.createdAt,
         authorNameStyle: disloopUserFlair.nameStyle,
         authorCustomTitle: disloopUserFlair.customTitle,
       }).from(disloopNewsPosts)
@@ -100,6 +104,7 @@ export async function GET(request: NextRequest) {
         authorName: disloopUsers.displayName,
         authorUsername: disloopUsers.usernameDisplay,
         authorAvatar: disloopUsers.avatarUrl,
+        authorCreatedAt: disloopUsers.createdAt,
         authorNameStyle: disloopUserFlair.nameStyle,
         authorCustomTitle: disloopUserFlair.customTitle,
       }).from(disloopReels)
@@ -120,11 +125,11 @@ export async function GET(request: NextRequest) {
     const bookmarks = rows.flatMap<SavedBookmark>((row) => {
       if (row.contentType === 'news') {
         const item = newsById.get(row.contentId)
-        return item ? [{ type: 'news' as const, savedAt: row.createdAt.toISOString(), item: { ...item, createdAt: item.createdAt.toISOString() } }] : []
+        return item ? [{ type: 'news' as const, savedAt: row.createdAt.toISOString(), item: { ...item, authorCreatedAt: item.authorCreatedAt.toISOString(), authorIsNewAccount: isNewAccount(item.authorCreatedAt), createdAt: item.createdAt.toISOString() } }] : []
       }
       if (row.contentType === 'reel') {
         const item = reelsById.get(row.contentId)
-        return item ? [{ type: 'reel' as const, savedAt: row.createdAt.toISOString(), item: { ...item, createdAt: item.createdAt.toISOString() } }] : []
+        return item ? [{ type: 'reel' as const, savedAt: row.createdAt.toISOString(), item: { ...item, authorCreatedAt: item.authorCreatedAt.toISOString(), authorIsNewAccount: isNewAccount(item.authorCreatedAt), createdAt: item.createdAt.toISOString() } }] : []
       }
       return []
     })

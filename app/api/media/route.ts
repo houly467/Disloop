@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
     )
   ` : sql``
 
+  let failureStage = 'authorization_query'
   try {
     const access = await db.execute(sql<{ allowed: boolean }>`
       SELECT (
@@ -57,6 +58,7 @@ export async function GET(request: NextRequest) {
     `)
     if (!access.rows[0]?.allowed) return NextResponse.json({ error: 'media_not_found' }, { status: 404 })
 
+    failureStage = 'blob_fetch'
     const range = request.headers.get('range')
     if (range && !/^bytes=(?:\d+-\d*|-\d+)$/i.test(range)) {
       return new NextResponse(null, { status: 416, headers: { 'Accept-Ranges': 'bytes' } })
@@ -92,6 +94,6 @@ export async function GET(request: NextRequest) {
 
     return new NextResponse(blob.stream, { status, headers })
   } catch (error) {
-    return NextResponse.json(apiFailurePayload('media_unavailable', error, 'GET /api/media'), { status: 502 })
+    return NextResponse.json(apiFailurePayload('media_unavailable', error, `GET /api/media:${failureStage}`), { status: 502 })
   }
 }

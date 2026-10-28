@@ -4,6 +4,7 @@ import { getReels } from '@/lib/reels'
 import { getCurrentUser } from '@/lib/session'
 import { isDiscordModerator } from '@/lib/discord-community'
 import { getUserNameFlair } from '@/lib/users'
+import { isNewAccount } from '@/lib/new-account'
 
 type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>
@@ -26,7 +27,7 @@ export default async function HomePage({ searchParams }: PageProps) {
   return (
     <NewsApp
       initialPosts={initialPosts}
-      initialSession={initialSession}
+      initialSession={initialSession ? { ...initialSession, isNewAccount: isNewAccount(initialSession.accountCreatedAt) } : null}
       initialReels={initialReels}
       initialProfilePosts={initialProfilePosts}
       initialProfileReels={initialProfileReels}
