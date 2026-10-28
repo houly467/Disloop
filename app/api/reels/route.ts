@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireLoggedInServerMember } from '@/lib/server-member'
 import { publishDiscordEmbed } from '@/lib/discord-community'
-import { awardXp } from '@/lib/gamification'
+import { awardXp, grantAchievementBadge } from '@/lib/gamification'
 import { db } from '@/lib/db'
 import { disloopReels, disloopUsers } from '@/lib/db/schema'
 import { isSameOriginRequest } from '@/lib/security'
@@ -80,6 +80,7 @@ export async function POST(request: NextRequest) {
     }
     await notifyMentions(caption, user.id, 'reel', created.id).catch(() => undefined)
     const xp = await awardXp(user.id, 20, 'reel_published', `reel:${created.id}`).catch(() => null)
+    await grantAchievementBadge(user.id, 'creator').catch((error) => console.error('[achievements] creator badge grant failed', { userId: user.id, error }))
     await publishDiscordEmbed({
       title: 'A new community Reel',
       description: caption || 'A new short video has been shared with the community.',

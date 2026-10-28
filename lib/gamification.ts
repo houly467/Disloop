@@ -1,8 +1,9 @@
-import { and, eq, gte, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { disloopUserBadgeRevocations, disloopUserBadges, disloopUsers, disloopXpEvents } from '@/lib/db/schema'
+import { disloopUserActivity, disloopUserBadgeRevocations, disloopUserBadges, disloopUsers, disloopXpEvents } from '@/lib/db/schema'
 import { XP_LEVEL_BADGES } from '@/lib/badges'
 import { syncDiscordXpRole } from '@/lib/discord-community'
+import { getDailyBonusXpGrant } from '@/lib/growth-rewards'
 
 const DAILY_XP_CAPS: Record<string, number> = {
   news_published: 20,
@@ -10,6 +11,8 @@ const DAILY_XP_CAPS: Record<string, number> = {
   story_published: 10,
   reel_published: 20,
   repost_received: 20,
+  invite_reward: 20,
+  challenge_reward: 20,
 }
 
 export async function awardXp(userId: string, points: number, reason: string, eventKey: string) {
@@ -28,7 +31,18 @@ export async function awardXp(userId: string, points: number, reason: string, ev
     const [earned] = await tx.select({ points: sql<number>`coalesce(sum(${disloopXpEvents.points}), 0)::int` })
       .from(disloopXpEvents)
       .where(and(eq(disloopXpEvents.userId, userId), eq(disloopXpEvents.reason, reason), gte(disloopXpEvents.createdAt, dayStart)))
-    const grantedPoints = Math.min(points, Math.max(0, dailyCap - (earned?.points ?? 0)))
+    let remainingCap = Math.max(0, dailyCap - (earned?.points ?? 0))
+    if (reason === 'invite_reward' || reason === 'challenge_reward') {
+      const [bonusEarned] = await tx.select({ points: sql<number>`coalesce(sum(${disloopXpEvents.points}), 0)::int` })
+        .from(disloopXpEvents)
+        .where(and(
+          eq(disloopXpEvents.userId, userId),
+          inArray(disloopXpEvents.reason, ['invite_reward', 'challenge_reward']),
+          gte(disloopXpEvents.createdAt, dayStart),
+        ))
+      remainingCap = Math.min(remainingCap, getDailyBonusXpGrant(points, bonusEarned?.points ?? 0))
+    }
+    const grantedPoints = Math.min(points, remainingCap)
     if (grantedPoints <= 0) return null
 
     const [event] = await tx
@@ -70,8 +84,40 @@ export async function awardXp(userId: string, points: number, reason: string, ev
     return user
   })
 
+  await recordActivityStreak(userId, dayStart)
   if (updatedUser) await syncDiscordXpRole(updatedUser.discordId, updatedUser.xp).catch(() => undefined)
   return updatedUser?.xp ?? null
+}
+
+export async function grantAchievementBadge(userId: string, badgeId: string) {
+  const [badge] = await db.insert(disloopUserBadges).values({ userId, badgeId }).onConflictDoNothing()
+    .returning({ badgeId: disloopUserBadges.badgeId })
+  return Boolean(badge)
+}
+
+async function recordActivityStreak(userId: string, dayStart: Date) {
+  try {
+    const today = dayStart.toISOString().slice(0, 10)
+    await db.insert(disloopUserActivity).values({ userId, activityDate: today }).onConflictDoNothing()
+    const activity = await db.select({ activityDate: disloopUserActivity.activityDate })
+      .from(disloopUserActivity)
+      .where(eq(disloopUserActivity.userId, userId))
+      .orderBy(desc(disloopUserActivity.activityDate))
+      .limit(7)
+    const activeDates = new Set(activity.map((row) => row.activityDate))
+    const hasSevenDayStreak = Array.from({ length: 7 }, (_, offset) => {
+      const date = new Date(dayStart)
+      date.setUTCDate(date.getUTCDate() - offset)
+      return activeDates.has(date.toISOString().slice(0, 10))
+    }).every(Boolean)
+    if (!hasSevenDayStreak) return
+    const [revocation] = await db.select({ badgeId: disloopUserBadgeRevocations.badgeId })
+      .from(disloopUserBadgeRevocations)
+      .where(and(eq(disloopUserBadgeRevocations.userId, userId), eq(disloopUserBadgeRevocations.badgeId, 'daily-loop')))
+    if (!revocation) await db.insert(disloopUserBadges).values({ userId, badgeId: 'daily-loop' }).onConflictDoNothing()
+  } catch (error) {
+    console.error('[gamification] activity streak update failed', { userId, error })
+  }
 }
 
 export type CommunityBadge = { id: string; label: string; description: string; earned: boolean }

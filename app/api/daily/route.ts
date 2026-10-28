@@ -6,6 +6,7 @@ import { awardXp } from '@/lib/gamification'
 import { db } from '@/lib/db'
 import { disloopDailyPosts, disloopStories, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
 import { getDailyPosts } from '@/lib/daily'
+import { visibleStories } from '@/lib/close-friends'
 import { isSameOriginRequest } from '@/lib/security'
 import { getCurrentUser } from '@/lib/session'
 import { extractTags } from '@/lib/tags'
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
     }
   }
   try {
-    const [feed, stories] = await Promise.all([
+    const [feed, stories, viewer] = await Promise.all([
       getDailyPosts(cursor),
       db.select({
         id: disloopStories.id,
@@ -56,11 +57,13 @@ export async function GET(request: NextRequest) {
         .where(gt(disloopStories.expiresAt, new Date()))
         .orderBy(desc(disloopStories.createdAt))
         .limit(30),
+      getCurrentUser(),
     ])
+    const visible = await visibleStories(stories, viewer?.id ?? null)
     return NextResponse.json({
       ...feed,
-      stories: stories.map((story) => ({ ...story, createdAt: story.createdAt.toISOString(), expiresAt: story.expiresAt.toISOString() })),
-    }, { headers: { 'Cache-Control': 'public, max-age=15, stale-while-revalidate=30' } })
+      stories: visible.map((story) => ({ ...story, createdAt: story.createdAt.toISOString(), expiresAt: story.expiresAt.toISOString() })),
+    }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     return NextResponse.json(apiFailurePayload('daily_feed_failed', error, 'GET /api/daily'), { status: 500 })
   }

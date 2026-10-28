@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireLoggedInServerMember } from '@/lib/server-member'
 import { publishDiscordEmbed } from '@/lib/discord-community'
-import { awardXp } from '@/lib/gamification'
+import { awardXp, grantAchievementBadge } from '@/lib/gamification'
 import { extractTags } from '@/lib/tags'
 import { db } from '@/lib/db'
 import { disloopNewsPosts, disloopUsers } from '@/lib/db/schema'
@@ -68,6 +68,7 @@ export async function POST(request: NextRequest) {
       .returning({ id: disloopNewsPosts.id })
     const post = await getNewsPostById(created.id)
     await notifyMentions(`${title}\n${body}`, user.id, 'news', created.id).catch(() => undefined)
+    await grantAchievementBadge(user.id, 'creator').catch((error) => console.error('[achievements] creator badge grant failed', { userId: user.id, error }))
     const [xp] = await Promise.all([
       awardXp(user.id, 10, 'news_published', `news:${created.id}`).catch(() => null),
       publishDiscordEmbed({ title, description: body, url: `${process.env.SITE_URL ?? request.nextUrl.origin}/`, category, tags }).catch(() => undefined),
