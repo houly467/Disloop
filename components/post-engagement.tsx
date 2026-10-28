@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
-import { Heart, MessageCircle, Repeat2, Send, ChevronDown, X, Pin, Share2, Copy, MoreHorizontal } from 'lucide-react'
+import { MessageCircle, Repeat2, Send, ChevronDown, X, Pin, Share2, Copy, MoreHorizontal } from 'lucide-react'
 import { MentionTextarea, RichText } from '@/components/mention-textarea'
 import { ModalPortal } from '@/components/modal-portal'
 import type { CurrentUser } from '@/lib/session'
@@ -303,7 +303,7 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
     <section className={`post-engagement ${variant === 'reel' ? 'post-engagement-reel' : ''}`} aria-label={copy.comments}>
       <div className="post-engagement-actions">
         <div className="post-reaction-control">
-          {viewer?.id !== authorId && <button className={`post-engagement-action ${likeData?.likedByMe ? 'post-engagement-action-liked' : ''} ${likePulse ? 'post-engagement-action-pulse' : ''}`} type="button" aria-pressed={likeData?.likedByMe ?? false} onClick={() => void toggleLike()}><Heart aria-hidden="true" /><span>{locale === 'ar' ? 'إعجاب' : 'Like'}</span></button>}
+          {viewer?.id !== authorId && <button className={`post-engagement-action ${likeData?.likedByMe ? 'post-engagement-action-liked' : ''} ${likePulse ? 'post-engagement-action-pulse' : ''}`} type="button" aria-pressed={likeData?.likedByMe ?? false} onClick={() => void toggleLike()}><span className="post-like-emoji" aria-hidden="true">👍</span><span>{locale === 'ar' ? 'إعجاب' : 'Like'}</span></button>}
           <button className={`post-reaction-count ${(likeData?.count ?? 0) === 0 ? 'post-reaction-count-zero' : ''}`} type="button" onClick={() => openReactions('likes')} aria-label={locale === 'ar' ? `عرض ${likeData?.count ?? 0} إعجابات` : `View ${likeData?.count ?? 0} likes`}>{formatSocialCount(likeData?.count ?? 0, locale)}</button>
         </div>
         <button className="post-engagement-action post-comment-action" type="button" aria-expanded={commentsOpen} onClick={() => setCommentsOpen((open) => !open)}><MessageCircle aria-hidden="true" /><span>{locale === 'ar' ? 'تعليق' : 'Comment'}</span><strong className={comments.length === 0 ? 'post-reaction-count-zero' : ''}>{formatSocialCount(comments.length, locale)}</strong></button>

@@ -1183,8 +1183,11 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .post-reaction-count-zero { color: var(--text-muted) !important; opacity: .7; }
 .post-engagement-action-liked { color: #e85d68; }
 .post-engagement-action-liked svg { fill: currentColor; }
+.post-engagement-action .post-like-emoji { font-size: 19px; line-height: 1; filter: grayscale(1) opacity(.72); }
+.post-engagement-action-liked .post-like-emoji { filter: grayscale(1) brightness(0) saturate(100%) invert(34%) sepia(95%) saturate(4532%) hue-rotate(335deg) brightness(101%) contrast(101%); }
 .post-engagement-action-reposted { color: #54a879; }
 .post-engagement-action-pulse svg { animation: social-action-pop 320ms ease-out; }
+.post-engagement-action-pulse .post-like-emoji { animation: social-action-pop 320ms ease-out; }
 @keyframes social-action-pop { 45% { transform: scale(1.35); } }
 .post-comment-action strong { color: var(--text-secondary); font-size: 8px; font-weight: 500; }
 .post-engagement-reel { position: absolute; z-index: 2; inset-inline-end: 10px; top: 50%; width: auto; max-height: calc(100% - 20px); padding: 0; border: 0; transform: translateY(-50%); }
@@ -1194,6 +1197,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .post-engagement-reel .post-engagement-action { display: flex; width: 100%; min-width: 0; min-height: 42px; flex: 0 0 auto; flex-direction: column; justify-content: center; gap: 4px; padding: 4px 2px; border-radius: 8px; color: #fff; font-size: 7px; line-height: 1.15; text-align: center; overflow-wrap: anywhere; }
 .post-engagement-reel .post-engagement-action:hover { background: rgb(255 255 255 / 12%); }
 .post-engagement-reel .post-engagement-action svg { width: 16px; height: 16px; flex: 0 0 auto; }
+.post-engagement-reel .post-engagement-action .post-like-emoji { width: auto; height: auto; font-size: 21px; }
 .post-engagement-reel .post-reaction-control > .post-engagement-action { min-height: 38px; }
 .post-engagement-reel .post-reaction-count { width: 100%; min-width: 0; min-height: 20px; padding: 0; color: #fff; font-size: 9px; text-align: center; }
 .post-engagement-reel .post-comment-action { min-width: 0; }
