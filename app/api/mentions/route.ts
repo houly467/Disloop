@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { disloopUserFlair, disloopUsers } from '@/lib/db/schema'
 import { getCurrentUser } from '@/lib/session'
 import { rateLimitResponse } from '@/lib/rate-limit'
+import { isNewAccount } from '@/lib/new-account'
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser()
@@ -20,13 +21,14 @@ export async function GET(request: NextRequest) {
       username: disloopUsers.usernameDisplay,
       displayName: disloopUsers.displayName,
       avatarUrl: disloopUsers.avatarUrl,
+      accountCreatedAt: disloopUsers.createdAt,
       nameStyle: disloopUserFlair.nameStyle,
       customTitle: disloopUserFlair.customTitle,
     }).from(disloopUsers)
       .leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id))
       .where(and(eq(disloopUsers.isSeed, false), ne(disloopUsers.id, user.id), or(ilike(disloopUsers.usernameDisplay, pattern), ilike(disloopUsers.displayName, pattern))))
       .orderBy(asc(disloopUsers.displayName)).limit(8)
-    return NextResponse.json({ people }, { headers: { 'Cache-Control': 'private, no-store' } })
+    return NextResponse.json({ people: people.map((person) => ({ ...person, isNewAccount: isNewAccount(person.accountCreatedAt) })) }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     return NextResponse.json(apiFailurePayload('mention_search_failed', error, '/api/mentions'), { status: 500 })
   }

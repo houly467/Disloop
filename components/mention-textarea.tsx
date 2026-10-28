@@ -5,7 +5,7 @@ import useSWR from 'swr'
 import { UserName } from '@/components/user-name'
 
 type Locale = 'en' | 'ar'
-type MentionPerson = { id: string; username: string; displayName: string; avatarUrl: string | null; nameStyle: string | null; customTitle: string | null }
+type MentionPerson = { id: string; username: string; displayName: string; avatarUrl: string | null; isNewAccount: boolean; nameStyle: string | null; customTitle: string | null }
 
 async function fetchPeople(url: string) {
   const response = await fetch(url, { cache: 'no-store' })
@@ -68,7 +68,7 @@ export function MentionSuggestions({ value, caret, locale, onSelect }: {
           onSelect(nextValue, term.start + inserted.length)
         }}>
           {person.avatarUrl ? <img src={person.avatarUrl} alt="" /> : <span className="mention-avatar-fallback">{person.displayName.charAt(0)}</span>}
-          <UserName userId={person.id} name={person.displayName} username={person.username} nameStyle={person.nameStyle} customTitle={person.customTitle} locale={locale} />
+          <UserName userId={person.id} name={person.displayName} username={person.username} isNewAccount={person.isNewAccount} nameStyle={person.nameStyle} customTitle={person.customTitle} locale={locale} />
         </button>
       ))}
     </div>

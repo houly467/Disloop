@@ -73,7 +73,7 @@ type Category = 'all' | 'server' | 'updates' | 'community' | 'events'
 
 type NewsAppProps = {
   initialPosts: NewsPost[]
-  initialSession: CurrentUser | null
+  initialSession: (CurrentUser & { isNewAccount?: boolean }) | null
   initialReels: CommunityReel[]
   initialProfilePosts: NewsPost[]
   initialProfileReels: CommunityReel[]
@@ -749,7 +749,7 @@ export function NewsApp({
                       <div className="post-footer">
                         <div className="author-row">
                           {post.authorAvatar ? <img src={post.authorAvatar} alt="" /> : <span className="author-fallback">{post.authorName.charAt(0)}</span>}
-                          {post.authorName === 'Disloop Community' ? <span className="post-author-link"><strong>{t.sample}</strong><small>@{post.authorUsername}</small></span> : <a className="post-author-link" href={`/u/${encodeURIComponent(post.authorUsername)}`}><UserName userId={post.authorId} name={post.authorName} username={post.authorUsername} createdAt={post.authorCreatedAt} nameStyle={post.authorNameStyle} customTitle={post.authorCustomTitle} locale={locale} /></a>}
+                          {post.authorName === 'Disloop Community' ? <span className="post-author-link"><strong>{t.sample}</strong><small>@{post.authorUsername}</small></span> : <a className="post-author-link" href={`/u/${encodeURIComponent(post.authorUsername)}`}><UserName userId={post.authorId} name={post.authorName} username={post.authorUsername} isNewAccount={post.authorIsNewAccount} nameStyle={post.authorNameStyle} customTitle={post.authorCustomTitle} locale={locale} /></a>}
                         </div>
                       </div>
                     </div>
