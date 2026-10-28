@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
-import { Heart, MessageCircle, Repeat2, Send, ChevronDown, X, Pin } from 'lucide-react'
+import { Heart, MessageCircle, Repeat2, Send, ChevronDown, X, Pin, Share2, Copy, MoreHorizontal } from 'lucide-react'
 import { MentionTextarea, RichText } from '@/components/mention-textarea'
 import { ModalPortal } from '@/components/modal-portal'
 import type { CurrentUser } from '@/lib/session'
@@ -31,6 +31,7 @@ type RepostResponse = { count: number; repostedByMe: boolean }
 type LikeResponse = { count: number; likedByMe: boolean }
 type Reaction = { userId: string; name: string; username: string; avatarUrl: string | null; createdAt: string; followsViewer: boolean; nameStyle: string | null; customTitle: string | null }
 type ReactionResponse = { reactions: Reaction[] }
+type SharePerson = { id: string; username: string; displayName: string; avatarUrl: string | null; accountCreatedAt: string; nameStyle: string | null; customTitle: string | null; following: boolean; followsYou: boolean }
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { cache: 'no-store' })
@@ -47,7 +48,7 @@ function formatDate(value: string, locale: Locale) {
   return new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
-export function PostEngagement({ type, contentId, authorId, viewer, locale, onSignIn, variant }: {
+export function PostEngagement({ type, contentId, authorId, viewer, locale, onSignIn, variant, onLikeChange }: {
   type: ContentType
   contentId: string
   authorId: string
@@ -55,6 +56,7 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
   locale: Locale
   onSignIn: () => void
   variant?: 'default' | 'reel'
+  onLikeChange?: (liked: boolean) => void
 }) {
   const copy = labels[locale]
   const [commentsOpen, setCommentsOpen] = useState(false)
@@ -67,6 +69,11 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
   const [busy, setBusy] = useState(false)
   const [likePulse, setLikePulse] = useState(false)
   const [repostPulse, setRepostPulse] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
+  const [shareQuery, setShareQuery] = useState('')
+  const [shareBusy, setShareBusy] = useState(false)
+  const [shareError, setShareError] = useState('')
+  const [moreOpen, setMoreOpen] = useState(false)
   const [followStatuses, setFollowStatuses] = useState<Record<string, boolean>>({})
   const [followBusy, setFollowBusy] = useState<string | null>(null)
   const commentsKey = `/api/social/comments?type=${type}&id=${contentId}`
@@ -78,6 +85,7 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
   const reactionKey = reactionSheetOpen ? `/api/social/reactions?type=${type}&id=${contentId}&kind=${reactionTab}` : null
   const { data: reactionData, isLoading: reactionsLoading, error: reactionLoadError } = useSWR<ReactionResponse>(reactionKey, fetchJson)
   const { data: blockData, isLoading: blocksLoading, error: blocksLoadError } = useSWR<{ blocks: { id: string }[] }>(reactionSheetOpen && viewer ? '/api/social/blocks' : null, fetchJson)
+  const { data: sharePeople } = useSWR<{ people: SharePerson[] }>(shareOpen && viewer && shareQuery.trim().length >= 2 ? `/api/dm/people?q=${encodeURIComponent(shareQuery.trim())}` : null, fetchJson)
   const comments = commentData?.comments ?? []
   const roots = comments.filter((comment) => !comment.threadRootId)
   const blockedIds = new Set((blockData?.blocks ?? []).map((block) => block.id))
@@ -127,6 +135,7 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
       const result = await response.json() as { liked?: boolean; count?: number; likeCount?: number }
       if (!response.ok || typeof result.liked !== 'boolean') throw new Error('like_failed')
       await mutateLike({ count: result.count ?? result.likeCount ?? optimistic.count, likedByMe: result.liked }, false)
+      onLikeChange?.(result.liked)
     } catch {
       await mutateLike(previous, false)
       setError(locale === 'ar' ? 'تعذر تحديث الإعجاب.' : 'Could not update your like.')
@@ -165,6 +174,45 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
       setError(copy.repostError)
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function shareReel(person: SharePerson) {
+      if (!viewer || type !== 'reel' || shareBusy) return
+      setShareBusy(true)
+      setShareError('')
+      try {
+        const conversationResponse = await fetch('/api/dm/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recipientId: person.id }),
+        })
+        const conversation = await conversationResponse.json() as { conversationId?: string; error?: string }
+        if (!conversationResponse.ok || !conversation.conversationId) throw new Error(conversation.error ?? 'conversation_failed')
+        const reelLink = `${window.location.origin}/?section=reels#reel-${encodeURIComponent(contentId)}`
+        const messageResponse = await fetch(`/api/dm/conversations/${encodeURIComponent(conversation.conversationId)}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body: `Reel: ${reelLink}` }),
+        })
+        if (!messageResponse.ok) throw new Error('share_failed')
+        setShareOpen(false)
+        setShareQuery('')
+      } catch (caught) {
+        setShareError(caught instanceof Error && caught.message === 'mutual_follow_required'
+          ? (locale === 'ar' ? 'يجب أن يتابع كل منكما الآخر لإرسال رسالة.' : 'You must follow each other to send a message.')
+          : (locale === 'ar' ? 'تعذر إرسال الريل.' : 'Could not send this Reel.'))
+      } finally {
+        setShareBusy(false)
+      }
+  }
+
+  async function copyReelLink() {
+      const url = `${window.location.origin}/?section=reels#reel-${encodeURIComponent(contentId)}`
+      try {
+        await navigator.clipboard.writeText(url)
+      } catch {
+        setError(locale === 'ar' ? 'تعذر نسخ الرابط.' : 'Could not copy the Reel link.')
     }
   }
 
@@ -255,7 +303,11 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
           {viewer?.id !== authorId && <button className={`post-engagement-action ${repostData?.repostedByMe ? 'post-engagement-action-reposted' : ''} ${repostPulse ? 'post-engagement-action-pulse' : ''}`} type="button" aria-pressed={repostData?.repostedByMe ?? false} onClick={() => void toggleRepost()}><Repeat2 aria-hidden="true" /><span>{repostData?.repostedByMe ? copy.reposted : copy.repost}</span></button>}
           <button className={`post-reaction-count ${(repostData?.count ?? 0) === 0 ? 'post-reaction-count-zero' : ''}`} type="button" onClick={() => openReactions('reposts')} aria-label={locale === 'ar' ? `عرض ${repostData?.count ?? 0} إعادة نشر` : `View ${repostData?.count ?? 0} reposts`}>{formatSocialCount(repostData?.count ?? 0, locale)}</button>
         </div>
-        {viewer && viewer.id !== authorId && <ReportButton targetType={type} targetId={contentId} locale={locale} className="post-engagement-action post-report-button" />}
+        {variant === 'reel' && viewer && <button className="post-engagement-action" type="button" onClick={() => { setShareOpen(true); setShareError('') }}><Share2 aria-hidden="true" /><span>{locale === 'ar' ? 'إرسال' : 'Share to DM'}</span></button>}
+        {variant === 'reel' && <button className="post-engagement-action" type="button" onClick={() => void copyReelLink()}><Copy aria-hidden="true" /><span>{locale === 'ar' ? 'نسخ الرابط' : 'Copy link'}</span></button>}
+        {variant === 'reel' && viewer && viewer.id !== authorId && <button className="post-engagement-action" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><MoreHorizontal aria-hidden="true" /><span>{locale === 'ar' ? 'المزيد' : 'More'}</span></button>}
+        {variant === 'reel' && moreOpen && viewer && <div className="reel-more-menu"><ReportButton targetType={type} targetId={contentId} locale={locale} className="post-engagement-action post-report-button" /></div>}
+        {variant !== 'reel' && viewer && viewer.id !== authorId && <ReportButton targetType={type} targetId={contentId} locale={locale} className="post-engagement-action post-report-button" />}
       </div>
       {error && <p className="social-error" role="alert">{error}</p>}
       {(likeLoadError || repostLoadError || commentLoadError) && <p className="social-error" role="alert">{locale === 'ar' ? 'تعذر تحميل التفاعلات أو التعليقات.' : 'Could not load engagement counts or comments.'}</p>}
@@ -301,6 +353,12 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
             {viewer?.id !== reaction.userId && <button type="button" className={`reaction-follow-button ${followStatuses[reaction.userId] ? 'reaction-following' : ''}`} disabled={followBusy === reaction.userId || followStatuses[reaction.userId]} onClick={() => void followReactionUser(reaction)}>{followStatuses[reaction.userId] ? (locale === 'ar' ? 'تتابعه' : 'Following') : reaction.followsViewer ? (locale === 'ar' ? 'متابعة متبادلة' : 'Follow back') : (locale === 'ar' ? 'متابعة' : 'Follow')}</button>}
           </li>)}</ul> : !reactionsLoading && !blocksLoading && !reactionLoadError && !blocksLoadError && <p className="reaction-sheet-empty">{locale === 'ar' ? 'لا توجد تفاعلات بعد.' : 'No reactions yet.'}</p>}
           {error && <p className="social-error" role="alert">{error}</p>}
+      </ModalPortal>}
+      {shareOpen && <ModalPortal backdropClassName="reaction-sheet-backdrop" dialogClassName="reaction-sheet reel-share-sheet" labelId="reel-share-title" onClose={() => setShareOpen(false)}>
+        <div className="reaction-sheet-heading"><h2 id="reel-share-title">{locale === 'ar' ? 'إرسال الريل' : 'Share this Reel'}</h2><button type="button" className="icon-button" onClick={() => setShareOpen(false)} aria-label={locale === 'ar' ? 'إغلاق' : 'Close'}><X aria-hidden="true" /></button></div>
+        <label className="reel-share-search"><span>{locale === 'ar' ? 'ابحث عن عضو' : 'Find a member'}</span><input value={shareQuery} onChange={(event) => setShareQuery(event.target.value)} minLength={2} autoFocus /></label>
+        <div className="reel-share-people">{(sharePeople?.people ?? []).map((person) => <button key={person.id} type="button" disabled={shareBusy || !person.following || !person.followsYou} onClick={() => void shareReel(person)}><UserName userId={person.id} name={person.displayName} username={person.username} nameStyle={person.nameStyle} customTitle={person.customTitle} locale={locale} /><small>{!person.following || !person.followsYou ? (locale === 'ar' ? 'المتابعة المتبادلة مطلوبة' : 'Mutual follow required') : shareBusy ? (locale === 'ar' ? 'جارٍ الإرسال…' : 'Sending…') : ''}</small></button>)}</div>
+        {shareError && <p className="social-error" role="alert">{shareError}</p>}
       </ModalPortal>}
     </section>
   )

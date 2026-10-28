@@ -74,6 +74,7 @@ type NewsAppProps = {
   initialModerator: boolean
   initialProfileFlair: { nameStyle: string | null; customTitle: string | null }
   initialComposerOpen: boolean
+  initialMessageTo?: string | null
   inviteUrl: string | null
   authNotice: string | null
 }
@@ -177,6 +178,7 @@ export function NewsApp({
   initialModerator,
   initialProfileFlair,
   initialComposerOpen,
+  initialMessageTo,
   inviteUrl,
   authNotice,
 }: NewsAppProps) {
@@ -665,7 +667,7 @@ export function NewsApp({
                         <span className="meta-dot" aria-hidden="true">·</span>
                         <time dateTime={post.createdAt}>{relativeTime(post.createdAt, locale)}</time>
                       </div>
-                      <h2>{post.title}</h2>
+                      <h2><a className="news-title-link" href={`/#news-${post.id}`}>{post.title}</a></h2>
                       <p className="post-excerpt"><RichText text={post.body} /></p>
                       {post.tags.length > 0 && <div className="tag-row">{post.tags.map((tag) => <a className="post-tag" key={tag} href={`/tags/${encodeURIComponent(tag)}?lang=${locale}`}>#{tag}</a>)}</div>}
                       <div className="post-footer">
@@ -693,7 +695,7 @@ export function NewsApp({
  />}
                 {activeSection === 'stories' && <StoriesSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} onCreateContent={checkContentMembership} onMembershipRequired={() => setJoinModalOpen(true)} />}
                 {activeSection === 'search' && <DatabaseSearchSection query={query} onQueryChange={setQuery} locale={locale} />}
-                {activeSection === 'messages' && <DirectMessagesSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} />}
+                {activeSection === 'messages' && <DirectMessagesSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} initialMessageTo={initialMessageTo} />}
                 {activeSection === 'groups' && <GroupsSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} />}
                 {activeSection === 'notifications' && <NotificationsSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} />}
                 {activeSection === 'profile' && currentUser && <ProfileSection profile={{ ...currentUser, ...initialProfileFlair, isMember: userIsMember }} posts={profilePosts} reels={profileReels} locale={locale} editable viewer={{ ...currentUser, isMember: userIsMember }} onSignIn={() => window.location.assign(loginHref)} onProfileSaved={(updated) => setCurrentUser((user) => user ? { ...user, ...updated } : user)} />}

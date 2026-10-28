@@ -8,8 +8,9 @@ export const UPLOAD_CONFIG = {
   },
   story: {
     folder: 'daily',
-    allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
-    maximumSizeInBytes: 10 * 1024 * 1024,
+    allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm'],
+    maximumSizeInBytes: 40 * 1024 * 1024,
+    maximumDurationSeconds: 60,
     dailyLimit: 20,
   },
   daily: {

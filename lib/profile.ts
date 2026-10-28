@@ -14,6 +14,7 @@ export type ProfileDetails = {
   socialLinks: SocialLinks
   publicVisitCount: boolean
   hideLikes: boolean
+  hideReposts: boolean
   isStaffRole: string | null
   xp: number
 }

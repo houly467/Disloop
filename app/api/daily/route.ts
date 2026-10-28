@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
         authorId: disloopStories.authorId,
         body: disloopStories.body,
         mediaUrl: disloopStories.mediaUrl,
+        mediaType: disloopStories.mediaType,
         createdAt: disloopStories.createdAt,
         expiresAt: disloopStories.expiresAt,
         authorName: disloopUsers.displayName,

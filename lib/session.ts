@@ -82,6 +82,7 @@ export async function getUserSessionResult(token: string | undefined): Promise<C
         socialLinks: disloopUsers.socialLinks,
         publicVisitCount: disloopUsers.publicVisitCount,
         hideLikes: disloopUsers.hideLikes,
+        hideReposts: disloopUsers.hideReposts,
         isStaffRole: disloopUsers.isStaffRole,
         isBanned: disloopUsers.isBanned,
         xp: disloopUsers.xp,

@@ -1,6 +1,6 @@
 'use client'
 
-import { useDeferredValue, useState } from 'react'
+import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { ArrowLeft, Check, ImagePlus, LockKeyhole, MessageCircle, Search, Send, UserRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -52,9 +52,9 @@ function Avatar({ avatarUrl, name }: { avatarUrl: string | null; name: string })
     : <span className="dm-avatar dm-avatar-fallback" aria-hidden="true"><UserRound /></span>
 }
 
-export function DirectMessagesSection({ viewer, locale, onSignIn }: { viewer: CurrentUser | null; locale: Locale; onSignIn: () => void }) {
+export function DirectMessagesSection({ viewer, locale, onSignIn, initialMessageTo }: { viewer: CurrentUser | null; locale: Locale; onSignIn: () => void; initialMessageTo?: string | null }) {
   const copy = labels[locale]
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(initialMessageTo ?? '')
   const deferredSearch = useDeferredValue(search.trim())
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [activePeer, setActivePeer] = useState<Peer | null>(null)
@@ -65,6 +65,7 @@ export function DirectMessagesSection({ viewer, locale, onSignIn }: { viewer: Cu
   const [uploadProgress, setUploadProgress] = useState(0)
   const [busyPersonId, setBusyPersonId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const initialMessageOpened = useRef(false)
   const eligible = Boolean(viewer)
 
   const { data: peopleData, isLoading: peopleLoading, mutate: refreshPeople } = useSWR<{ people: Person[] }>(
@@ -81,6 +82,18 @@ export function DirectMessagesSection({ viewer, locale, onSignIn }: { viewer: Cu
     fetcher,
     { refreshInterval: 5000 },
   )
+
+  useEffect(() => {
+    if (initialMessageOpened.current || !initialMessageTo || !peopleData?.people) return
+    const person = peopleData.people.find((candidate) => candidate.username.toLowerCase() === initialMessageTo.toLowerCase())
+    if (!person) return
+    initialMessageOpened.current = true
+    if (!person.following || !person.followsYou) {
+      setError(copy.locked)
+      return
+    }
+    void createConversation(person)
+  }, [copy.locked, initialMessageTo, peopleData?.people])
 
   async function createConversation(person: Peer) {
     setError('')

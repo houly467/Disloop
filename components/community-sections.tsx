@@ -5,7 +5,7 @@ import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState
 import { createPortal } from 'react-dom'
 import {   ArrowUpRight,
   BadgeCheck,
-  Ban, Eye, Check, Flag, Link2, MapPin, MoreHorizontal, Pencil, Plus, Repeat2, Search, ShieldAlert, Upload, UserRound, Video, X } from 'lucide-react'
+  Ban, Eye, Check, Flag, Heart, Link2, MapPin, MessageCircle, MoreHorizontal, Pencil, Plus, Repeat2, Search, ShieldAlert, Upload, UserRound, Video, X } from 'lucide-react'
 import type { CommunityReel } from '@/lib/reels'
 import type { NewsPost } from '@/lib/news'
 import type { CurrentUser } from '@/lib/session'
@@ -23,6 +23,7 @@ import { localizedUploadError } from '@/lib/client-errors'
 import { compressImage } from '@/lib/image-compression'
 import { UserName } from '@/components/user-name'
 import { ReportDialog } from '@/components/report-dialog'
+import { countWords } from '@/lib/tags'
 
 export type CommunityProfile = (CurrentUser & { nameStyle?: string | null; customTitle?: string | null }) | PublicProfile
 
@@ -44,7 +45,7 @@ const profileCopy = {
     posts: 'News', postsStat: 'Posts', reels: 'Reels', xp: 'XP', badges: 'Community badges', earned: 'Earned', next: 'Next milestone',
     copy: 'Copy profile link', copied: 'Link copied', copyError: 'Could not copy the profile link.', saveError: 'Could not save your profile.', usernameTaken: 'Username is already taken.',
     invalid: 'Use at least 3 characters for a regular username. 1–2 character handles require the Verified badge.', empty: 'No updates have been shared yet.', verified: 'Discord connected', privateVisits: 'Your profile visits', lastSevenDays: 'Last 7 days', noVisits: 'No visits yet',
-    showVisits: 'Show profile visits publicly', showVisitsHint: 'Let visitors see the number of member visits.', profileVisits: 'Profile visits', views: 'visits', followers: 'followers', followingCount: 'following', hideLikes: 'Hide my likes from lists', hideLikesHint: 'Your likes will not appear in member lists.', follow: 'Follow', following: 'Following', followBack: 'Follow back', followError: 'Could not update follow status.'
+    showVisits: 'Show profile visits publicly', showVisitsHint: 'Let visitors see the number of member visits.', profileVisits: 'Profile visits', views: 'visits', followers: 'followers', followingCount: 'following', hideLikes: 'Hide my likes from lists', hideLikesHint: 'Your likes will not appear in member lists.', hideReposts: 'Hide my reposts', hideRepostsHint: 'Only you can see your reposts on your profile.', likesTab: 'Likes', message: 'Message', follow: 'Follow', following: 'Following', followBack: 'Follow back', followError: 'Could not update follow status.'
   },
   ar: {
     about: 'نبذة عني', edit: 'تعديل الملف', save: 'حفظ التغييرات', cancel: 'إلغاء', saving: 'جارٍ الحفظ…', postsTab: 'المنشورات', repostsTab: 'إعادات النشر', repostedBy: 'أعاد النشر',
@@ -53,7 +54,7 @@ const profileCopy = {
     posts: 'الأخبار', postsStat: 'المنشورات', reels: 'ريلز', xp: 'نقاط الخبرة', badges: 'شارات المجتمع', earned: 'مكتسبة', next: 'الإنجاز التالي',
     copy: 'نسخ رابط الملف', copied: 'تم نسخ الرابط', copyError: 'تعذر نسخ رابط الملف الشخصي.', saveError: 'تعذر حفظ الملف الشخصي.', usernameTaken: 'اسم المستخدم مستخدم بالفعل.',
     invalid: 'يجب أن يتكون اسم المستخدم العادي من ٣ أحرف على الأقل. تتطلب الأسماء من حرف أو حرفين شارة التوثيق.', empty: 'لم تتم مشاركة أي تحديثات بعد.', verified: 'Discord متصل', privateVisits: 'زيارات ملفك', lastSevenDays: 'آخر ٧ أيام', noVisits: 'لا توجد زيارات بعد',
-    showVisits: 'إظهار زيارات الملف', showVisitsHint: 'اسمح للزوار برؤية عدد زيارات الأعضاء.', profileVisits: 'زيارات الملف', views: 'زيارة', followers: 'متابع', followingCount: 'يتابع', hideLikes: 'إخفاء إعجاباتي من القوائم', hideLikesHint: 'لن تظهر إعجاباتك في قوائم الأعضاء.', follow: 'متابعة', following: 'تتابعه', followBack: 'متابعة متبادلة', followError: 'تعذر تحديث المتابعة.'
+    showVisits: 'إظهار زيارات الملف', showVisitsHint: 'اسمح للزوار برؤية عدد زيارات الأعضاء.', profileVisits: 'زيارات الملف', views: 'زيارة', followers: 'متابع', followingCount: 'يتابع', hideLikes: 'إخفاء إعجاباتي من القوائم', hideLikesHint: 'لن تظهر إعجاباتك في قوائم الأعضاء.', hideReposts: 'إخفاء إعادات النشر', hideRepostsHint: 'ستظهر إعادات النشر لك فقط في ملفك.', likesTab: 'الإعجابات', message: 'مراسلة', follow: 'متابعة', following: 'تتابعه', followBack: 'متابعة متبادلة', followError: 'تعذر تحديث المتابعة.'
   },
 } satisfies Record<Locale, Record<string, string>>
 
@@ -122,9 +123,14 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
   onSignIn?: () => void
 }) {
   const labels = profileCopy[locale]
-  const [profileTab, setProfileTab] = useState<'posts' | 'reposts'>('posts')
+  const [profileTab, setProfileTab] = useState<'posts' | 'reposts' | 'likes'>('posts')
   const [relationshipDirection, setRelationshipDirection] = useState<'followers' | 'following' | null>(null)
   const { data: repostData } = useSWR<{ reposts: ProfileRepost[] }>(`/api/social/reposts?userId=${encodeURIComponent(profile.id)}`, fetchProfileReposts)
+  const { data: likedReelData } = useSWR<{ reels: CommunityReel[] }>(editable ? '/api/reels?liked=true' : null, async (url: string) => {
+    const response = await fetch(url, { cache: 'no-store' })
+    if (!response.ok) throw new Error('liked_reels_failed')
+    return response.json() as Promise<{ reels: CommunityReel[] }>
+  })
   const followKey = !editable && viewer && viewer.id !== profile.id ? `/api/dm/follows/${encodeURIComponent(profile.id)}` : null
   const { data: followData, mutate: mutateFollow } = useSWR<{ following: boolean; followsYou: boolean }>(followKey, fetchFollowStatus)
   const countsUrl = `/api/social/follows?userId=${encodeURIComponent(profile.id)}&countsOnly=true`
@@ -162,6 +168,7 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
     socialLinks: { ...profile.socialLinks },
     publicVisitCount: profile.publicVisitCount,
     hideLikes: profile.hideLikes,
+    hideReposts: profile.hideReposts,
   }))
   const nextMilestone = [25, 50, 100, 250, 500].find((milestone) => profile.xp < milestone) ?? null
   const previousMilestone = nextMilestone === null ? 500 : [0, 25, 50, 100, 250, 500].filter((milestone) => milestone < nextMilestone).at(-1) ?? 0
@@ -359,9 +366,10 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
       <div className="profile-overview">
         {profile.avatarUrl ? <img className="profile-avatar" src={profile.avatarUrl} alt="" /> : <span className="profile-avatar profile-avatar-fallback"><UserRound aria-hidden="true" /></span>}
         <div className="profile-identity"><span className="profile-verified"><BadgeCheck aria-hidden="true" />{labels.verified}</span><h1 id="profile-title"><UserName userId={profile.id} name={profile.displayName} username={profile.username} createdAt={profile.accountCreatedAt} nameStyle={profile.nameStyle} customTitle={profile.customTitle} locale={locale} /></h1></div>
-        {editable && !editing && <button className="profile-copy-button" type="button" onClick={() => { setValues({ username: profile.username, displayName: profile.displayName, bio: profile.bio, location: profile.location ?? '', socialLinks: { ...profile.socialLinks }, publicVisitCount: profile.publicVisitCount, hideLikes: profile.hideLikes }); setAvatarFile(null); setBannerFile(null); setRemoveAvatar(false); setRemoveBanner(false); setError(''); setEditing(true) }}><Pencil aria-hidden="true" />{labels.edit}</button>}
+        {editable && !editing && <button className="profile-copy-button" type="button" onClick={() => { setValues({ username: profile.username, displayName: profile.displayName, bio: profile.bio, location: profile.location ?? '', socialLinks: { ...profile.socialLinks }, publicVisitCount: profile.publicVisitCount, hideLikes: profile.hideLikes, hideReposts: profile.hideReposts }); setAvatarFile(null); setBannerFile(null); setRemoveAvatar(false); setRemoveBanner(false); setError(''); setEditing(true) }}><Pencil aria-hidden="true" />{labels.edit}</button>}
         {!editable && <div className="profile-action-group">
           {followKey && followData && <button className="profile-copy-button" type="button" aria-pressed={followData.following} onClick={() => void toggleProfileFollow().catch(() => setError(labels.followError))}><UserRound aria-hidden="true" />{followData.following ? labels.following : followData.followsYou ? labels.followBack : labels.follow}</button>}
+          <button className="profile-copy-button" type="button" onClick={() => window.location.assign(`/?section=messages&messageTo=${encodeURIComponent(profile.username)}`)}><MessageCircle aria-hidden="true" />{labels.message}</button>
           <button className="profile-copy-button" type="button" onClick={copyProfileLink}><Link2 aria-hidden="true" />{copied ? labels.copied : labels.copy}</button>
           {viewer && <button ref={moderationButtonRef} className="profile-copy-button profile-more-button" type="button" aria-label={locale === 'ar' ? 'إجراءات الملف الشخصي' : 'Profile actions'} aria-haspopup="menu" aria-expanded={moderationMenuOpen} onClick={() => { setModerationMenuOpen((open) => !open); setModerationMessage('') }} onKeyDown={(event) => { if (event.key === 'ArrowDown') { event.preventDefault(); setModerationMenuOpen(true) } }}><MoreHorizontal aria-hidden="true" /></button>}
           {moderationMessage && <p className="profile-moderation-status" role="status">{moderationMessage}</p>}
@@ -398,6 +406,10 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
             <input type="checkbox" checked={values.hideLikes} onChange={(event) => setValues({ ...values, hideLikes: event.target.checked })} />
             <span><strong>{labels.hideLikes}</strong><small>{labels.hideLikesHint}</small></span>
           </label>
+          <label className="profile-visit-setting">
+            <input type="checkbox" checked={values.hideReposts} onChange={(event) => setValues({ ...values, hideReposts: event.target.checked })} />
+            <span><strong>{labels.hideReposts}</strong><small>{labels.hideRepostsHint}</small></span>
+          </label>
           <div className="profile-link-editor"><h2>{labels.linkedAccounts}</h2>{linkFields.map((field) => <label key={field}>{labels[field]}<input type="url" dir="ltr" placeholder="https://" value={values.socialLinks[field] ?? ''} onChange={(event) => setValues({ ...values, socialLinks: { ...values.socialLinks, [field]: event.target.value } })} /></label>)}</div>
           {error && <div className="form-error" role="alert"><p>{error}</p><button type="button" className="section-secondary-button" disabled={saving} onClick={() => document.querySelector<HTMLFormElement>('.profile-edit-form')?.requestSubmit()}>{locale === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button></div>}
           <div className="profile-edit-actions"><button type="button" className="section-secondary-button" onClick={() => { setEditing(false); setError('') }} disabled={saving}><X aria-hidden="true" />{labels.cancel}</button><button type="submit" className="section-primary-button" disabled={saving}>{saving ? labels.saving : labels.save}<Check aria-hidden="true" /></button></div>
@@ -432,11 +444,12 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
             <div className="profile-content-tabs" role="tablist" aria-label={locale === 'ar' ? 'محتوى الملف الشخصي' : 'Profile content'}>
               <button type="button" role="tab" aria-selected={profileTab === 'posts'} className={profileTab === 'posts' ? 'profile-content-tab profile-content-tab-active' : 'profile-content-tab'} onClick={() => setProfileTab('posts')}>{labels.postsTab}<span>{posts.length + reels.length}</span></button>
               <button type="button" role="tab" aria-selected={profileTab === 'reposts'} className={profileTab === 'reposts' ? 'profile-content-tab profile-content-tab-active' : 'profile-content-tab'} onClick={() => setProfileTab('reposts')}>{labels.repostsTab}<span>{repostData?.reposts.length ?? 0}</span></button>
+              {editable && <button type="button" role="tab" aria-selected={profileTab === 'likes'} className={profileTab === 'likes' ? 'profile-content-tab profile-content-tab-active' : 'profile-content-tab'} onClick={() => setProfileTab('likes')}>{labels.likesTab}<span>{likedReelData?.reels.length ?? 0}</span></button>}
             </div>
             {profileTab === 'posts' ? posts.length || reels.length ? <div className="news-list">
               {posts.map((post) => <article className="search-post" key={post.id}><UserName userId={profile.id} name={profile.displayName} username={profile.username} createdAt={profile.accountCreatedAt} nameStyle={profile.nameStyle} customTitle={profile.customTitle} locale={locale} /><span className="category-pill">{post.category}</span><h3>{post.title}</h3><p><RichText text={post.body} /></p><PostEngagement type="news" contentId={post.id} authorId={profile.id} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(`/u/${profile.username}`)}`))} /></article>)}
-              {reels.map((reel) => <article className="search-post" key={reel.id}><UserName userId={profile.id} name={profile.displayName} username={profile.username} createdAt={profile.accountCreatedAt} nameStyle={profile.nameStyle} customTitle={profile.customTitle} locale={locale} /><span className="category-pill">{labels.reels}</span><h3>{reel.caption ? <RichText text={reel.caption} /> : labels.reels}</h3><a className="profile-reel-link" href={reel.videoUrl} target="_blank" rel="noreferrer"><Video aria-hidden="true" />{reel.videoUrl}<ArrowUpRight aria-hidden="true" /></a><PostEngagement type="reel" contentId={reel.id} authorId={profile.id} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(`/u/${profile.username}`)}`))} /></article>)}
-            </div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Video aria-hidden="true" /></span><h2>{labels.empty}</h2></div> : repostData?.reposts.length ? <div className="news-list">{repostData.reposts.map((repost) => <article className="search-post profile-repost-card" key={`${repost.type}-${repost.id}`}><span className="profile-repost-label"><Repeat2 aria-hidden="true" />{labels.repostedBy} @{profile.username}</span><span className="category-pill">{repost.type === 'reel' ? labels.reels : repost.type}</span><h3>{repost.type === 'reel' ? repost.caption || labels.reels : repost.type === 'news' ? repost.title : locale === 'ar' ? 'منشور يومي' : 'Daily post'}</h3>{repost.type !== 'reel' && repost.body && <p><RichText text={repost.body} /></p>}{repost.type === 'reel' && repost.videoUrl && <a className="profile-reel-link" href={repost.videoUrl} target="_blank" rel="noreferrer"><Video aria-hidden="true" />{repost.videoUrl}<ArrowUpRight aria-hidden="true" /></a>}<a className="profile-repost-original" href={`/#${repost.type}-${repost.id}`}>{repost.authorName} · @{repost.authorUsername}</a><PostEngagement type={repost.type} contentId={repost.id} authorId={repost.authorId} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(`/u/${profile.username}`)}`))} /></article>)}</div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Repeat2 aria-hidden="true" /></span><h2>{labels.empty}</h2></div>}
+              {reels.map((reel) => <article className="search-post" key={reel.id}><UserName userId={profile.id} name={profile.displayName} username={profile.username} createdAt={profile.accountCreatedAt} nameStyle={profile.nameStyle} customTitle={profile.customTitle} locale={locale} /><span className="category-pill">{labels.reels}</span><h3>{reel.caption ? <RichText text={reel.caption} /> : labels.reels}</h3><video className="profile-reel-player" controls playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.reels} /><PostEngagement type="reel" contentId={reel.id} authorId={profile.id} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(`/u/${profile.username}`)}`))} /></article>)}
+            </div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Video aria-hidden="true" /></span><h2>{labels.empty}</h2></div> : profileTab === 'likes' ? likedReelData?.reels.length ? <div className="news-list">{likedReelData.reels.map((reel) => <article className="search-post" key={reel.id}><h3>{reel.caption ? <RichText text={reel.caption} /> : labels.reels}</h3><video className="profile-reel-player" controls playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.reels} /><PostEngagement type="reel" contentId={reel.id} authorId={reel.authorId} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign('/auth/login'))} /></article>)}</div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Heart aria-hidden="true" /></span><h2>{labels.empty}</h2></div> : repostData?.reposts.length ? <div className="news-list">{repostData.reposts.map((repost) => <article className="search-post profile-repost-card" key={`${repost.type}-${repost.id}`}><span className="profile-repost-label"><Repeat2 aria-hidden="true" />{labels.repostedBy} @{profile.username}</span><span className="category-pill">{repost.type === 'reel' ? labels.reels : repost.type}</span><h3>{repost.type === 'reel' ? repost.caption || labels.reels : repost.type === 'news' ? repost.title : locale === 'ar' ? 'منشور يومي' : 'Daily post'}</h3>{repost.type !== 'reel' && repost.body && <p><RichText text={repost.body} /></p>}{repost.type === 'reel' && repost.videoUrl && <video className="profile-reel-player" controls playsInline preload="metadata" src={repost.videoUrl} />}<a className="profile-repost-original" href={`/#${repost.type}-${repost.id}`}>{repost.authorName} · @{repost.authorUsername}</a><PostEngagement type={repost.type} contentId={repost.id} authorId={repost.authorId} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(`/u/${profile.username}`)}`))} /></article>)}</div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Repeat2 aria-hidden="true" /></span><h2>{labels.empty}</h2></div>}
             {relationshipDirection && <RelationshipModal
               userId={profile.id}
               viewerId={viewer?.id ?? null}
@@ -480,6 +493,8 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
   const [publishing, setPublishing] = useState(false)
   const [error, setError] = useState('')
   const [composerOpen, setComposerOpen] = useState(false)
+  const [likedReelIds, setLikedReelIds] = useState<Set<string>>(() => new Set())
+  const visibleReels = reels.filter((reel) => !likedReelIds.has(reel.id))
 
   async function openComposer() {
     if (!viewer) return onSignIn()
@@ -490,6 +505,7 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
     event?.preventDefault()
     setError('')
     if (!file) return
+    if (countWords(caption) > 100) return setError(locale === 'ar' ? 'يجب ألا يتجاوز الوصف ١٠٠ كلمة.' : 'Captions can be up to 100 words.')
     if (!['video/mp4', 'video/webm'].includes(file.type)) return setError(labels.format)
     if (file.size > 40 * 1024 * 1024) return setError(labels.tooLarge)
     let durationSeconds: number
@@ -545,19 +561,19 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
       {composerOpen && <ModalPortal backdropClassName="social-composer-modal-backdrop" dialogClassName="social-composer-modal reel-composer-modal" labelId="reel-composer-title" onClose={() => { if (!publishing) setComposerOpen(false) }}>
         <div className="social-composer-modal-heading"><h2 id="reel-composer-title">{labels.publish}</h2><button className="icon-button" type="button" disabled={publishing} onClick={() => setComposerOpen(false)} aria-label={locale === 'ar' ? 'إغلاق' : 'Close'}><X aria-hidden="true" /></button></div>
         <form className="reel-composer" onSubmit={publishReel}>
-          <label className="reel-caption-field"><span>{labels.caption}</span><MentionTextarea maxLength={500} value={caption} onChange={setCaption} locale={locale} rows={3} placeholder={`${labels.caption} · #community`} className="reel-caption-input" /></label>
-          <div className="reel-composer-footer"><label className="reel-file-picker"><input type="file" accept="video/mp4,video/webm" onChange={(event) => { setFile(event.currentTarget.files?.[0] ?? null); event.currentTarget.value = '' }} /><Upload aria-hidden="true" /><span>{file?.name ?? labels.file}</span></label><button className="section-primary-button" type="submit" disabled={!file || publishing}>{publishing ? labels.publishing : labels.publish}<Plus aria-hidden="true" /></button></div>
+          <label className="reel-caption-field"><span>{labels.caption}</span><MentionTextarea maxLength={500} value={caption} onChange={setCaption} locale={locale} rows={3} placeholder={`${labels.caption} · #community`} className="reel-caption-input" /><small>{countWords(caption)}/100 {locale === 'ar' ? 'كلمة' : 'words'}</small></label>
+          <div className="reel-composer-footer"><label className="reel-file-picker"><input type="file" accept="video/mp4,video/webm" onChange={(event) => { setFile(event.currentTarget.files?.[0] ?? null); event.currentTarget.value = '' }} /><Upload aria-hidden="true" /><span>{file?.name ?? labels.file}</span></label><button className="section-primary-button" type="submit" disabled={!file || publishing || countWords(caption) > 100}>{publishing ? labels.publishing : labels.publish}<Plus aria-hidden="true" /></button></div>
           <p className="reel-upload-hint">{labels.fileHint}</p>
           {publishing && <div className="upload-progress"><div><span>{labels.upload}</span><strong>{progress}%</strong></div><progress value={progress} max={100} aria-label={labels.upload} /></div>}
           {error && <div className="form-error" role="alert"><p>{error}</p><button type="button" className="section-secondary-button" disabled={publishing} onClick={() => document.querySelector<HTMLFormElement>('.reel-composer')?.requestSubmit()}>{labels.retry}</button></div>}
         </form>
       </ModalPortal>}
-      {reels.length ? <div className="reel-list">{reels.map((reel) => <article className="reel-card" id={`reel-${reel.id}`} key={reel.id}>
+      {visibleReels.length ? <div className="reel-list">{visibleReels.map((reel) => <article className="reel-card" id={`reel-${reel.id}`} key={reel.id}>
         <video className="reel-video" controls playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.title} />
         <div className="reel-card-content"><div className="reel-author"><span>{reel.authorAvatar ? <img src={reel.authorAvatar} alt="" /> : <UserRound aria-hidden="true" />}</span><a href={`/u/${encodeURIComponent(reel.authorUsername)}`}><UserName userId={reel.authorId} name={reel.authorName} username={reel.authorUsername} createdAt={reel.authorCreatedAt} nameStyle={reel.authorNameStyle} customTitle={reel.authorCustomTitle} locale={locale} /></a></div>
           {reel.caption && <p><RichText text={reel.caption} /></p>}
           {reel.tags.length > 0 && <div className="tag-row">{reel.tags.map((tag) => <a className="post-tag" key={tag} href={`/tags/${encodeURIComponent(tag)}?lang=${locale}`}>#{tag}</a>)}</div>}
-          <PostEngagement type="reel" contentId={reel.id} authorId={reel.authorId} viewer={viewer} locale={locale} onSignIn={onSignIn} variant="reel" />
+          <PostEngagement type="reel" contentId={reel.id} authorId={reel.authorId} viewer={viewer} locale={locale} onSignIn={onSignIn} variant="reel" onLikeChange={(liked) => setLikedReelIds((current) => { const next = new Set(current); if (liked) next.add(reel.id); else next.delete(reel.id); return next })} />
         </div>
       </article>)}</div> : <div className="section-empty reels-empty"><span className="section-empty-icon"><Video aria-hidden="true" /></span><h2>{labels.empty}</h2><p>{labels.emptyBody}</p></div>}
     </section>

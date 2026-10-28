@@ -72,6 +72,7 @@ export async function PATCH(request: NextRequest) {
     socialLinks: z.record(z.string(), z.string().max(240)),
     publicVisitCount: z.boolean(),
     hideLikes: z.boolean(),
+    hideReposts: z.boolean().optional(),
   }).strict())
   if (!data) return NextResponse.json({ error: 'invalid_profile' }, { status: 400 })
   const username = data.username
@@ -85,6 +86,7 @@ export async function PATCH(request: NextRequest) {
   const socialLinks = parseSocialLinks(data.socialLinks)
   const publicVisitCount = data.publicVisitCount
   const hideLikes = data.hideLikes
+  const hideReposts = data.hideReposts ?? user.hideReposts
 
   if (!usernameLower || !socialLinks || findMentionUsernames(bio).length > 5
     || (dateOfBirth !== undefined && !isValidDateOfBirth(dateOfBirth))
@@ -118,6 +120,7 @@ export async function PATCH(request: NextRequest) {
       socialLinks,
       publicVisitCount,
       hideLikes,
+      hideReposts,
       ...(dateOfBirth !== undefined ? { dateOfBirth } : {}),
       ...(profileAvatarUrl !== undefined ? { profileAvatarUrl } : {}),
       ...(profileBannerUrl !== undefined ? { profileBannerUrl } : {}),
@@ -134,6 +137,7 @@ export async function PATCH(request: NextRequest) {
       socialLinks: disloopUsers.socialLinks,
       publicVisitCount: disloopUsers.publicVisitCount,
       hideLikes: disloopUsers.hideLikes,
+      hideReposts: disloopUsers.hideReposts,
     })
     await notifyMentions(bio, user.id, 'profile', user.id).catch(() => undefined)
     return NextResponse.json({ profile: updated })

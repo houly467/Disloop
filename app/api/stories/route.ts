@@ -23,6 +23,7 @@ export async function GET() {
       authorId: disloopStories.authorId,
       body: disloopStories.body,
       mediaUrl: disloopStories.mediaUrl,
+      mediaType: disloopStories.mediaType,
       createdAt: disloopStories.createdAt,
       expiresAt: disloopStories.expiresAt,
       authorName: disloopUsers.displayName,
@@ -58,13 +59,14 @@ export async function POST(request: NextRequest) {
   if (!data) return NextResponse.json({ error: 'invalid_story' }, { status: 400 })
   const body = (data.body ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e\u001f]/g, '').trim()
   const mediaUrl = data.mediaUrl ?? null
+  const mediaType = mediaUrl && /\.(mp4|webm)(?:$|[?#])/i.test(mediaUrl) ? 'video' : mediaUrl ? 'image' : null
   if (body.length > 500 || (!body && !mediaUrl) || (mediaUrl && !isAllowedStoryMediaUrl(mediaUrl, user.id))) {
     return NextResponse.json({ error: 'invalid_story' }, { status: 400 })
   }
 
   try {
-    const [story] = await db.insert(disloopStories).values({ authorId: user.id, body, mediaUrl })
-      .returning({ id: disloopStories.id, authorId: disloopStories.authorId, body: disloopStories.body, mediaUrl: disloopStories.mediaUrl, createdAt: disloopStories.createdAt, expiresAt: disloopStories.expiresAt })
+    const [story] = await db.insert(disloopStories).values({ authorId: user.id, body, mediaUrl, mediaType })
+      .returning({ id: disloopStories.id, authorId: disloopStories.authorId, body: disloopStories.body, mediaUrl: disloopStories.mediaUrl, mediaType: disloopStories.mediaType, createdAt: disloopStories.createdAt, expiresAt: disloopStories.expiresAt })
     const xp = await awardXp(user.id, 2, 'story_published', `story:${story.id}`).catch(() => null)
     return NextResponse.json({ story: { ...story, createdAt: story.createdAt.toISOString(), expiresAt: story.expiresAt.toISOString(), authorName: user.displayName, authorUsername: user.username, authorAvatar: user.avatarUrl }, xp }, { status: 201 })
   } catch (error) {

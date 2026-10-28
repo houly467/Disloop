@@ -122,6 +122,7 @@ export async function getPublicUserByUsername(username: string) {
       socialLinks: disloopUsers.socialLinks,
       publicVisitCount: disloopUsers.publicVisitCount,
       hideLikes: disloopUsers.hideLikes,
+      hideReposts: disloopUsers.hideReposts,
       isStaffRole: disloopUsers.isStaffRole,
       xp: disloopUsers.xp,
       isMember: disloopUsers.isMember,

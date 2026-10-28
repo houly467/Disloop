@@ -32,6 +32,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ count, repostedByMe: existing.length > 0 }, { headers: { 'Cache-Control': 'private, no-store' } })
     }
     if (!userId || !isUuid(userId)) return NextResponse.json({ error: 'invalid_profile' }, { status: 400 })
+    const viewer = await getCurrentUser()
+    const [profileOwner] = await db.select({ hideReposts: disloopUsers.hideReposts })
+      .from(disloopUsers).where(eq(disloopUsers.id, userId)).limit(1)
+    if (!profileOwner) return NextResponse.json({ error: 'profile_not_found' }, { status: 404 })
+    if (profileOwner.hideReposts && viewer?.id !== userId) {
+      return NextResponse.json({ reposts: [] }, { headers: { 'Cache-Control': 'private, no-store' } })
+    }
     const news = await db.select({
       id: disloopNewsPosts.id,
       repostedAt: disloopReposts.createdAt,

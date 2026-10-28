@@ -6,17 +6,33 @@ import { publishDiscordEmbed } from '@/lib/discord-community'
 import { awardXp } from '@/lib/gamification'
 import { db } from '@/lib/db'
 import { disloopReels, disloopUsers } from '@/lib/db/schema'
-import { getCurrentUser } from '@/lib/session'
 import { isSameOriginRequest } from '@/lib/security'
-import { extractTags } from '@/lib/tags'
+import { countWords, extractTags } from '@/lib/tags'
 import { rateLimitResponse } from '@/lib/rate-limit'
 import { parseJsonBody } from '@/lib/validation'
 import { z } from 'zod'
 import { findMentionUsernames, notifyMentions } from '@/lib/social'
 import { isPrivateMediaUrlForUser, isPublicBlobUrlForUser } from '@/lib/private-media'
+import { getReels } from '@/lib/reels'
+import { getCurrentUser } from '@/lib/session'
+import { isUuid } from '@/lib/dm'
 
 function isAllowedReelUrl(value: string, userId: string) {
   return isPrivateMediaUrlForUser(value, 'reels', userId) || isPublicBlobUrlForUser(value, 'reels', userId)
+}
+
+export async function GET(request: NextRequest) {
+  const viewer = await getCurrentUser()
+  const likedOnly = request.nextUrl.searchParams.get('liked') === 'true'
+  const userId = request.nextUrl.searchParams.get('userId')
+  if (userId && !isUuid(userId)) return NextResponse.json({ error: 'invalid_user' }, { status: 400 })
+  if (likedOnly && !viewer) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  try {
+    const reels = await getReels(viewer?.id, undefined, userId ?? undefined, { likedOnly, excludeLiked: !likedOnly })
+    return NextResponse.json({ reels }, { headers: { 'Cache-Control': 'private, no-store' } })
+  } catch (error) {
+    return NextResponse.json(apiFailurePayload('reels_unavailable', error, 'GET /api/reels'), { status: 500 })
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -33,7 +49,7 @@ export async function POST(request: NextRequest) {
   if (!data) return NextResponse.json({ error: 'invalid_reel' }, { status: 400 })
   const videoUrl = data.videoUrl
   const caption = data.caption ?? ''
-  if (!isAllowedReelUrl(videoUrl, user.id) || findMentionUsernames(caption).length > 5) return NextResponse.json({ error: 'invalid_reel' }, { status: 400 })
+  if (!isAllowedReelUrl(videoUrl, user.id) || findMentionUsernames(caption).length > 5 || countWords(caption) > 100) return NextResponse.json({ error: 'invalid_reel' }, { status: 400 })
 
   let tags: string[]
   try {

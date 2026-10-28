@@ -33,6 +33,7 @@ export default async function HomePage({ searchParams }: PageProps) {
       initialModerator={initialModerator}
       initialProfileFlair={initialProfileFlair}
       initialComposerOpen={params.compose === 'news'}
+      initialMessageTo={typeof params.messageTo === 'string' ? params.messageTo : null}
       inviteUrl={process.env.DISCORD_INVITE_URL ?? null}
       authNotice={typeof params.auth === 'string' ? params.auth : null}
     />

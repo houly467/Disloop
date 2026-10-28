@@ -1,4 +1,4 @@
-import { and, arrayContains, desc, eq, sql } from 'drizzle-orm'
+import { and, arrayContains, desc, eq, exists, not, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { disloopReelLikes, disloopReels, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
 
@@ -63,10 +63,22 @@ function serializeReel(reel: ReturnType<typeof reelFields> extends never ? never
   }
 }
 
-export async function getReels(viewerId?: string, tag?: string, authorId?: string) {
+export async function getReels(
+  viewerId?: string,
+  tag?: string,
+  authorId?: string,
+  options: { likedOnly?: boolean; excludeLiked?: boolean } = {},
+) {
   const filters = [eq(disloopReels.isHidden, false)]
   if (tag) filters.push(arrayContains(disloopReels.tags, [tag]))
   if (authorId) filters.push(eq(disloopReels.authorId, authorId))
+  if (viewerId && options.likedOnly) {
+    filters.push(exists(db.select({ one: sql`1` }).from(disloopReelLikes)
+      .where(and(eq(disloopReelLikes.reelId, disloopReels.id), eq(disloopReelLikes.userId, viewerId)))))
+  } else if (viewerId && options.excludeLiked !== false && !authorId) {
+    filters.push(not(exists(db.select({ one: sql`1` }).from(disloopReelLikes)
+      .where(and(eq(disloopReelLikes.reelId, disloopReels.id), eq(disloopReelLikes.userId, viewerId))))))
+  }
 
   const rows = await db
     .select(reelFields(viewerId))

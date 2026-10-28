@@ -8,5 +8,10 @@ export function extractTags(text: string) {
     tags.add(normalized)
     if (tags.size > 10) throw new Error('too_many_tags')
   }
+
   return [...tags]
+}
+
+export function countWords(text: string) {
+  return [...text.matchAll(/[\p{L}\p{N}][\p{L}\p{N}\p{M}]*(?:['’][\p{L}\p{N}\p{M}]+)*/gu)].length
 }
