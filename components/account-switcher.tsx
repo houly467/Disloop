@@ -2,14 +2,14 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
-import { ChevronDown, CircleUserRound, Plus, UserRound } from 'lucide-react'
+import { Bookmark, ChevronDown, CircleUserRound, Plus, UserRound } from 'lucide-react'
 import type { CurrentUser } from '@/lib/session'
 import type { PresenceStatus } from '@/lib/profile'
 import { UserName } from '@/components/user-name'
 
 const labels = {
-  en: { status: 'Status', accounts: 'Accounts', link: 'Link another account', online: 'Online', idle: 'Idle', dnd: 'Do Not Disturb', invisible: 'Invisible', error: 'Could not update your account.' },
-  ar: { status: 'الحالة', accounts: 'الحسابات', link: 'ربط حساب آخر', online: 'متصل', idle: 'خامل', dnd: 'عدم الإزعاج', invisible: 'مخفي', error: 'تعذر تحديث الحساب.' },
+  en: { status: 'Status', accounts: 'Accounts', link: 'Link another account', saved: 'Saved', online: 'Online', idle: 'Idle', dnd: 'Do Not Disturb', invisible: 'Invisible', error: 'Could not update your account.' },
+  ar: { status: 'الحالة', accounts: 'الحسابات', link: 'ربط حساب آخر', saved: 'المحفوظات', online: 'متصل', idle: 'خامل', dnd: 'عدم الإزعاج', invisible: 'مخفي', error: 'تعذر تحديث الحساب.' },
 } as const
 
 type Account = Pick<CurrentUser, 'id' | 'displayName' | 'username' | 'avatarUrl' | 'presenceStatus'>
@@ -79,6 +79,7 @@ export function AccountSwitcher({ user, locale, nameStyle, customTitle }: {
         <select id="presence-status" value={status} onChange={(event) => void updateStatus(event.target.value)}>
           {(['online', 'idle', 'dnd', 'invisible'] as const).map((value) => <option value={value} key={value}>{copy[value]}</option>)}
         </select>
+        <a className="account-link-action" href="/?section=saved"><Bookmark aria-hidden="true" />{copy.saved}</a>
         <span className="account-switcher-label">{copy.accounts}</span>
         {accounts.map((account) => (
           <button className="linked-account-option" key={account.id} type="button" aria-current={account.id === user.id ? 'true' : undefined} onClick={() => void switchAccount(account.id)}>

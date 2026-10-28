@@ -1,6 +1,7 @@
 import { and, arrayContains, desc, eq, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { disloopNewsPosts, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
+import { disloopNewsPosts, disloopProfilePins, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
+import { safeApiFailureReason } from '@/lib/api-errors'
 
 export type NewsPost = {
   id: string
@@ -98,15 +99,30 @@ export async function getNewsPostById(id: string) {
 }
 
 export async function getNewsPostsByAuthor(authorId: string) {
-  const rows = await db
-    .select(postFields)
-    .from(disloopNewsPosts)
-    .leftJoin(disloopUsers, eq(disloopNewsPosts.authorId, disloopUsers.id))
-    .leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id))
-    .where(and(eq(disloopNewsPosts.authorId, authorId), eq(disloopNewsPosts.isHidden, false)))
-    .orderBy(desc(disloopNewsPosts.createdAt))
-    .limit(30)
-  return rows.map(serializePost)
+  try {
+    const rows = await db
+      .select(postFields)
+      .from(disloopNewsPosts)
+      .leftJoin(disloopUsers, eq(disloopNewsPosts.authorId, disloopUsers.id))
+      .leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id))
+      .leftJoin(disloopProfilePins, and(eq(disloopProfilePins.userId, authorId), eq(disloopProfilePins.postId, disloopNewsPosts.id)))
+      .where(and(eq(disloopNewsPosts.authorId, authorId), eq(disloopNewsPosts.isHidden, false)))
+      .orderBy(desc(sql`(${disloopProfilePins.postId} is not null)`), desc(disloopNewsPosts.createdAt))
+      .limit(30)
+    return rows.map(serializePost)
+  } catch (error) {
+    if (safeApiFailureReason(error) !== 'missing_table') throw error
+    console.warn('[news] profile pins unavailable; using regular post ordering')
+    const rows = await db
+      .select(postFields)
+      .from(disloopNewsPosts)
+      .leftJoin(disloopUsers, eq(disloopNewsPosts.authorId, disloopUsers.id))
+      .leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id))
+      .where(and(eq(disloopNewsPosts.authorId, authorId), eq(disloopNewsPosts.isHidden, false)))
+      .orderBy(desc(disloopNewsPosts.createdAt))
+      .limit(30)
+    return rows.map(serializePost)
+  }
 }
 
 export async function getNewsPostsByTag(tag: string) {

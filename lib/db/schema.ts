@@ -352,6 +352,60 @@ export const disloopLikes = pgTable(
   ],
 )
 
+export const disloopPolls = pgTable(
+  'disloop_polls',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    contentType: varchar('content_type', { length: 16 }).notNull(),
+    contentId: uuid('content_id').notNull(),
+    authorId: uuid('author_id').notNull(),
+    options: jsonb('options').$type<string[]>().notNull(),
+    endsAt: timestamp('ends_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('disloop_polls_content_unique').on(table.contentType, table.contentId),
+    index('disloop_polls_author_created_idx').on(table.authorId, table.createdAt),
+  ],
+)
+
+export const disloopPollVotes = pgTable(
+  'disloop_poll_votes',
+  {
+    pollId: uuid('poll_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    optionIndex: integer('option_index').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.pollId, table.userId] }),
+    index('disloop_poll_votes_poll_idx').on(table.pollId),
+  ],
+)
+
+export const disloopBookmarks = pgTable(
+  'disloop_bookmarks',
+  {
+    userId: uuid('user_id').notNull(),
+    contentType: varchar('content_type', { length: 16 }).notNull(),
+    contentId: uuid('content_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.contentType, table.contentId] }),
+    index('disloop_bookmarks_user_created_idx').on(table.userId, table.createdAt),
+  ],
+)
+
+export const disloopProfilePins = pgTable(
+  'disloop_profile_pins',
+  {
+    userId: uuid('user_id').primaryKey(),
+    postId: uuid('post_id').notNull().unique(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+)
+
 export const disloopUserBadges = pgTable(
   'disloop_user_badges',
   {

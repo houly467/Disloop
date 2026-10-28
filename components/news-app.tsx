@@ -39,6 +39,8 @@ import type { NewsPost } from '@/lib/news'
 import type { CurrentUser } from '@/lib/session'
 import type { CommunityReel } from '@/lib/reels'
 import { DatabaseSearchSection, ProfileSection, ReelsSection } from '@/components/community-sections'
+import { SavedSection } from '@/components/saved-section'
+import { PollCard, PollComposer, fetchPolls, updatePollResponse, type PollDraft } from '@/components/social-poll'
 import { DirectMessagesSection } from '@/components/direct-messages-section'
 import { GroupsSection } from '@/components/groups-section'
 import { AccountSwitcher } from '@/components/account-switcher'
@@ -60,8 +62,8 @@ import { UserName } from '@/components/user-name'
 import { DiscordJoinModal } from '@/components/discord-join-modal'
 
 type Locale = 'en' | 'ar'
-type MainSection = 'news' | 'reels' | 'stories' | 'search' | 'profile' | 'messages' | 'groups' | 'notifications'
-const navigationSections = new Set<MainSection>(['news', 'reels', 'stories', 'search', 'profile', 'messages', 'groups', 'notifications'])
+type MainSection = 'news' | 'reels' | 'stories' | 'search' | 'profile' | 'messages' | 'groups' | 'notifications' | 'saved'
+const navigationSections = new Set<MainSection>(['news', 'reels', 'stories', 'search', 'profile', 'messages', 'groups', 'notifications', 'saved'])
 type Theme = 'dark' | 'light'
 type Category = 'all' | 'server' | 'updates' | 'community' | 'events'
 
@@ -82,7 +84,7 @@ type NewsAppProps = {
 const copy = {
   en: {
     tagline: 'A little closer, every day.',
-    news: 'News', reels: 'Reels', stories: 'Stories', search: 'Search', profile: 'Profile', messages: 'Messages', groups: 'Groups', notifications: 'Notifications',
+    news: 'News', reels: 'Reels', stories: 'Stories', search: 'Search', profile: 'Profile', messages: 'Messages', groups: 'Groups', notifications: 'Notifications', saved: 'Saved',
     language: 'العربية', themeDark: 'Switch to light theme', themeLight: 'Switch to dark theme',
     signIn: 'Log in with Discord', signOut: 'Sign out', create: 'Write a post',
     eyebrow: 'THE COMMUNITY, IN THE LOOP',
@@ -98,7 +100,7 @@ const copy = {
     openDiscord: 'Join the Discord', verify: 'I’ve joined — check again', checking: 'Checking…',
     verified: 'You’re in. Welcome to the community.', verifyFailed: 'We couldn’t verify that yet. Try again in a moment.',
     signInFirst: 'Log in to your Discord account to share with the community.',
-    noNotifications: 'You’re all caught up.', savedPost: 'Post saved for this session.', unsavedPost: 'Post removed from saved items.', viewCover: 'Open cover image', closeImage: 'Close image viewer',
+    noNotifications: 'You’re all caught up.', savedPost: 'Post saved to your items.', unsavedPost: 'Post removed from saved items.', bookmarkError: 'Could not update saved items.', pollUnavailable: 'The post was published, but its poll could not be saved. Apply the database update and try again.', viewCover: 'Open cover image', closeImage: 'Close image viewer',
     postTitle: 'Share an update', postDescription: 'A good note, a useful update, or something the community should know.',
     titleLabel: 'Title', titlePlaceholder: 'Give your post a clear title',
     bodyLabel: 'What’s happening?', bodyPlaceholder: 'Add a little context for everyone…',
@@ -109,6 +111,7 @@ const copy = {
     tooManyTags: 'A post can include up to 10 hashtags.', tooManyMentions: 'A post can mention up to 5 people.', fileType: 'Choose a JPG, PNG, or WebP image.',
     fileSize: 'Cover images can be up to 10 MB.', uploadFailed: 'The image could not upload. Please try again.',
     publishFailed: 'The post could not be published. Please try again.',
+    invalidPoll: 'Add 2–4 different poll options and choose a future end time.',
     membershipRequired: 'Join the Discord server before publishing.',
     toast: 'Your post is in the loop.', latest: 'Latest',
     serverNote: 'A calmer corner of the internet', serverNoteBody: 'No rush. Just the things people here care about.',
@@ -121,7 +124,7 @@ const copy = {
   },
   ar: {
     tagline: 'أقرب لبعض، كل يوم.',
-    news: 'الأخبار', reels: 'ريلز', stories: 'القصص', search: 'بحث', profile: 'الملف الشخصي', messages: 'الرسائل', groups: 'المجموعات', notifications: 'الإشعارات',
+    news: 'الأخبار', reels: 'ريلز', stories: 'القصص', search: 'بحث', profile: 'الملف الشخصي', messages: 'الرسائل', groups: 'المجموعات', notifications: 'الإشعارات', saved: 'المحفوظات',
     language: 'English', themeDark: 'التبديل إلى المظهر الفاتح', themeLight: 'التبديل إلى المظهر الداكن',
     signIn: 'تسجيل الدخول عبر Discord', signOut: 'تسجيل الخروج', create: 'اكتب منشورًا',
     eyebrow: 'مجتمعنا، لحظة بلحظة',
@@ -137,7 +140,7 @@ const copy = {
     openDiscord: 'انضم إلى Discord', verify: 'انضممت — تحقق الآن', checking: 'جارٍ التحقق…',
     verified: 'أصبحت معنا. أهلًا بك في المجتمع.', verifyFailed: 'تعذر التحقق الآن. جرّب مرة أخرى بعد قليل.',
     signInFirst: 'سجّل الدخول إلى Discord للمشاركة مع المجتمع.',
-    noNotifications: 'لا توجد إشعارات جديدة.', savedPost: 'تم حفظ المنشور لهذه الجلسة.', unsavedPost: 'تمت إزالة المنشور من المحفوظات.', viewCover: 'عرض صورة الغلاف', closeImage: 'إغلاق عارض الصور',
+    noNotifications: 'لا توجد إشعارات جديدة.', savedPost: 'تم حفظ المنشور.', unsavedPost: 'تمت إزالة المنشور من المحفوظات.', bookmarkError: 'تعذر تحديث المحفوظات.', pollUnavailable: 'تم نشر المنشور، لكن تعذر حفظ الاستطلاع. طبّق تحديث قاعدة البيانات ثم حاول مجددًا.', viewCover: 'عرض صورة الغلاف', closeImage: 'إغلاق عارض الصور',
     postTitle: 'شارك تحديثًا', postDescription: 'معلومة مفيدة أو تحديث أو شيء يستحق أن يعرف�� المجتمع.',
     titleLabel: 'العنوان', titlePlaceholder: 'اكتب عنوانًا واضحًا لمنشو��ك',
     bodyLabel: 'ما الذي يحدث؟', bodyPlaceholder: 'أضف بعض التفاصيل للجميع…',
@@ -148,6 +151,7 @@ const copy = {
     tooManyTags: 'يمكن إضافة 10 وسوم كحد أقصى.', tooManyMentions: 'يمكن الإشارة ��لى 5 أشخاص كحد أقصى.', fileType: 'اختر صورة بصيغة JPG أو PNG أو WebP.',
     fileSize: 'يجب ألا يتجاوز حجم الغلاف 10 ميغابايت.', uploadFailed: 'تعذر رفع الصورة. حاول مرة أخرى.',
     publishFailed: 'تعذر نشر المنشور. حاول مرة أخرى.',
+    invalidPoll: 'أضف من خيارين إلى أربعة خيارات مختلفة، واختر وقت انتهاء في المستقبل.',
     membershipRequired: 'انضم إلى سيرفر Discord قبل النشر.',
     toast: 'تم نشر منشورك في المجتمع.', latest: 'الأحدث',
     serverNote: 'زاوية هادئة على الإنترنت', serverNoteBody: 'على راحتك. هنا ما يهم أفراد المجتمع.',
@@ -207,7 +211,15 @@ export function NewsApp({
       `${url.pathname}${url.search}${url.hash}`,
     )
   }, [])
-  const [savedPostIds, setSavedPostIds] = useState<Set<string>>(() => new Set())
+  const newsBookmarkKey = currentUser ? `/api/social/bookmarks?contentType=news&ids=${posts.map((post) => post.id).join(',')}` : null
+  const { data: savedNews, mutate: mutateSavedNews } = useSWR<{ savedIds: string[]; available: boolean }>(newsBookmarkKey, async (url: string) => {
+    const response = await fetch(url, { cache: 'no-store' })
+    if (!response.ok) throw new Error('bookmarks_failed')
+    return response.json()
+  })
+  const savedPostIds = new Set(savedNews?.savedIds ?? [])
+  const newsPollKey = posts.length ? `/api/social/polls?contentType=news&ids=${posts.map((post) => post.id).join(',')}` : null
+  const { data: newsPolls, mutate: mutateNewsPolls } = useSWR(newsPollKey, fetchPolls, { refreshInterval: 10000 })
   const [category, setCategory] = useState<Category>('all')
   const [query, setQuery] = useState('')
   const [notice, setNotice] = useState<string | null>(
@@ -223,6 +235,7 @@ export function NewsApp({
   const [repliesFromFollowing, setRepliesFromFollowing] = useState(false)
   const [coverFile, setCoverFile] = useState<File | null>(null)
   const [coverPreview, setCoverPreview] = useState<string | null>(null)
+  const [pollDraft, setPollDraft] = useState<PollDraft | null>(null)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [publishing, setPublishing] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -359,14 +372,30 @@ export function NewsApp({
     window.history.replaceState({ ...(state && typeof state === 'object' ? state : {}), disloopSection: 'news', disloopSectionIndex: 0 }, '', `${url.pathname}${url.search}${url.hash}`)
   }
 
-  function toggleSavedPost(postId: string) {
+  async function toggleSavedPost(postId: string) {
+    if (!currentUser) {
+      window.location.assign(loginHref)
+      return
+    }
     const isSaved = savedPostIds.has(postId)
-    setSavedPostIds((current) => {
-      const next = new Set(current)
-      if (isSaved) next.delete(postId)
-      else next.add(postId)
-      return next
-    })
+    const updated = new Set(savedPostIds)
+    if (isSaved) updated.delete(postId)
+    else updated.add(postId)
+    const previous = savedNews
+    await mutateSavedNews({ savedIds: [...updated], available: previous?.available ?? true }, false)
+    try {
+      const response = await fetch('/api/social/bookmarks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contentType: 'news', contentId: postId, saved: !isSaved }),
+      })
+      if (!response.ok) throw new Error('bookmark_update_failed')
+    } catch (error) {
+      console.error('[social-bookmarks] toggle failed', { contentType: 'news', contentId: postId, error })
+      await mutateSavedNews(previous, false)
+      showMessage('bookmarkError')
+      return
+    }
     showMessage(isSaved ? 'unsavedPost' : 'savedPost')
   }
 
@@ -399,7 +428,7 @@ export function NewsApp({
   }
 
   function closeComposer() {
-    const hasChanges = Boolean(title.trim() || body.trim() || coverFile || repliesFromFollowing || accentColor !== CALM_POST_COLORS[0])
+    const hasChanges = Boolean(title.trim() || body.trim() || coverFile || repliesFromFollowing || pollDraft || accentColor !== CALM_POST_COLORS[0])
     if (hasChanges && !publishing && !window.confirm(t.unsaved)) return
     if (window.history.state?.disloopModalId === composerHistoryId.current) {
       window.history.back()
@@ -434,6 +463,14 @@ export function NewsApp({
       setFormError('required')
       return
     }
+    if (pollDraft) {
+      const options = pollDraft.options.map((option) => option.trim().toLocaleLowerCase())
+      const endTime = pollDraft.endsAt ? new Date(pollDraft.endsAt) : null
+      if (options.some((option) => !option) || new Set(options).size !== options.length || (endTime && (!Number.isFinite(endTime.getTime()) || endTime <= new Date()))) {
+        setFormError('invalidPoll')
+        return
+      }
+    }
 
     setPublishing(true)
     setUploadProgress(0)
@@ -460,16 +497,38 @@ export function NewsApp({
 
       setPosts((current) => [result.post!, ...current])
       setProfilePosts((current) => [result.post!, ...current])
+      let pollFailed = false
+      if (pollDraft) {
+        try {
+          const pollResponse = await fetch('/api/social/polls', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contentType: 'news',
+              contentId: result.post.id,
+              options: pollDraft.options,
+              endsAt: pollDraft.endsAt ? new Date(pollDraft.endsAt).toISOString() : null,
+            }),
+          })
+          if (!pollResponse.ok) throw new Error(`poll_create_${pollResponse.status}`)
+        } catch (error) {
+          pollFailed = true
+          console.error('[social-polls] poll could not be saved with post', { contentId: result.post.id, error })
+        }
+      }
       if (result.xp !== null && result.xp !== undefined) setCurrentUser((user) => user ? { ...user, xp: result.xp! } : user)
       setTitle('')
       setBody('')
       setAccentColor(CALM_POST_COLORS[0])
       setRepliesFromFollowing(false)
+      setPollDraft(null)
       setCoverFile(null)
       setCoverPreview(null)
       setComposerOpen(false)
       setShowToast(true)
       window.setTimeout(() => setShowToast(false), 3_500)
+      if (pollFailed) showMessage('pollUnavailable')
+      else if (pollDraft) void mutateNewsPolls()
     } catch (error) {
       const message = error instanceof Error ? error.message : 'publishFailed'
       console.error('[news] publishing flow failed', { message })
@@ -493,6 +552,7 @@ export function NewsApp({
     { section: 'messages', label: t.messages, icon: MessageCircle },
     { section: 'groups', label: t.groups, icon: UsersRound },
     { section: 'notifications', label: t.notifications, icon: Bell },
+    { section: 'saved', label: t.saved, icon: Bookmark },
     { section: 'profile', label: t.profile, icon: UserRound },
   ]
   const activeSectionLabel = navigation.find(({ section }) => section === activeSection)?.label ?? t.news
@@ -651,13 +711,13 @@ export function NewsApp({
                       <div className="news-cover-wrap">
                         <ImageViewer src={post.coverUrl} alt={post.title} label={t.viewCover} closeLabel={t.closeImage} className="news-cover" />
                         {post.pinned && <span className="cover-label"><Bookmark aria-hidden="true" />{t.pinned}</span>}
-                        <button className={`cover-menu icon-button ${savedPostIds.has(post.id) ? 'cover-menu-saved' : ''}`} type="button" aria-label={isArabic ? savedPostIds.has(post.id) ? 'إزالة من ا��محفوظات' : 'حفظ المنشور' : savedPostIds.has(post.id) ? 'Remove saved post' : 'Save post'} onClick={() => toggleSavedPost(post.id)}>{savedPostIds.has(post.id) ? <Check aria-hidden="true" /> : <Bookmark aria-hidden="true" />}</button>
+                        <button className={`cover-menu icon-button ${savedPostIds.has(post.id) ? 'cover-menu-saved' : ''}`} type="button" aria-label={isArabic ? savedPostIds.has(post.id) ? 'إزالة من المحفوظات' : 'حفظ المنشور' : savedPostIds.has(post.id) ? 'Remove saved post' : 'Save post'} onClick={() => void toggleSavedPost(post.id)}>{savedPostIds.has(post.id) ? <Check aria-hidden="true" /> : <Bookmark aria-hidden="true" />}</button>
                       </div>
                     ) : (
                       <div className={`news-cover-fallback fallback-${post.category}`} aria-label={isArabic ? 'لون غلاف هادئ' : 'Calm color cover'}>
                         <span className="fallback-mark">d<span>.</span></span>
                         {post.pinned && <span className="fallback-pinned"><Bookmark aria-hidden="true" />{t.pinned}</span>}
-                        <button className={`cover-menu icon-button ${savedPostIds.has(post.id) ? 'cover-menu-saved' : ''}`} type="button" aria-label={isArabic ? savedPostIds.has(post.id) ? 'إزالة من المحفوظات' : 'حفظ المنشور' : savedPostIds.has(post.id) ? 'Remove saved post' : 'Save post'} onClick={() => toggleSavedPost(post.id)}>{savedPostIds.has(post.id) ? <Check aria-hidden="true" /> : <Bookmark aria-hidden="true" />}</button>
+                        <button className={`cover-menu icon-button ${savedPostIds.has(post.id) ? 'cover-menu-saved' : ''}`} type="button" aria-label={isArabic ? savedPostIds.has(post.id) ? 'إزالة من المحفوظات' : 'حفظ المنشور' : savedPostIds.has(post.id) ? 'Remove saved post' : 'Save post'} onClick={() => void toggleSavedPost(post.id)}>{savedPostIds.has(post.id) ? <Check aria-hidden="true" /> : <Bookmark aria-hidden="true" />}</button>
                       </div>
                     )}
                     <div className="news-card-content">
@@ -669,6 +729,7 @@ export function NewsApp({
                       </div>
                       <h2><a className="news-title-link" href={`/#news-${post.id}`}>{post.title}</a></h2>
                       <p className="post-excerpt"><RichText text={post.body} /></p>
+                      {newsPolls?.polls.filter((poll) => poll.contentId === post.id).map((poll) => <PollCard key={poll.id} poll={poll} locale={locale} canVote={Boolean(currentUser)} onSignIn={() => window.location.assign(loginHref)} onVote={(updated) => void mutateNewsPolls((current) => updatePollResponse(current, updated), false)} />)}
                       {post.tags.length > 0 && <div className="tag-row">{post.tags.map((tag) => <a className="post-tag" key={tag} href={`/tags/${encodeURIComponent(tag)}?lang=${locale}`}>#{tag}</a>)}</div>}
                       <div className="post-footer">
                         <div className="author-row">
@@ -698,6 +759,7 @@ export function NewsApp({
                 {activeSection === 'messages' && <DirectMessagesSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} initialMessageTo={initialMessageTo} />}
                 {activeSection === 'groups' && <GroupsSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} />}
                 {activeSection === 'notifications' && <NotificationsSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} />}
+                {activeSection === 'saved' && <SavedSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} />}
                 {activeSection === 'profile' && currentUser && <ProfileSection profile={{ ...currentUser, ...initialProfileFlair, isMember: userIsMember }} posts={profilePosts} reels={profileReels} locale={locale} editable viewer={{ ...currentUser, isMember: userIsMember }} onSignIn={() => window.location.assign(loginHref)} onProfileSaved={(updated) => setCurrentUser((user) => user ? { ...user, ...updated } : user)} />}
                 {activeSection === 'profile' && !currentUser && <section className="section-view"><div className="section-heading"><span className="section-kicker"><UserRound aria-hidden="true" />{t.profile}</span><h1>{isArabic ? 'ابدأ ملفك بتسجيل الدخول عبر Discord' : 'Your profile starts with Discord'}</h1><p>{isArabic ? 'سجّل الدخول لعرض هويتك ومنشوراتك في المجتمع.' : 'Sign in to see your community identity and posts.'}</p></div><button className="section-primary-button" type="button" onClick={() => window.location.assign(loginHref)}>{t.signIn}<ArrowUpRight aria-hidden="true" /></button></section>}
               </div>
@@ -761,6 +823,7 @@ export function NewsApp({
 
           <label className="composer-field"><span>{t.titleLabel}</span><Input maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t.titlePlaceholder} required /></label>
           <label className="composer-field"><span>{t.bodyLabel}</span><MentionTextarea maxLength={10_000} rows={5} value={body} onChange={setBody} locale={locale} placeholder={t.bodyPlaceholder} required className="composer-body-input" /></label>
+          <PollComposer value={pollDraft} onChange={setPollDraft} locale={locale} />
           <label className="composer-field"><span>{t.categoryLabel}</span>
             <select value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value)}>
               <option value="server">{t.server}</option><option value="updates">{t.updates}</option><option value="community">{t.community}</option><option value="events">{t.events}</option>

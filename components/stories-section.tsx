@@ -12,6 +12,7 @@ import { uploadMedia } from '@/lib/client-upload'
 import { localizedUploadError } from '@/lib/client-errors'
 import { ModalPortal } from '@/components/modal-portal'
 import { UserName } from '@/components/user-name'
+import { PollCard, PollComposer, fetchPolls, updatePollResponse, type PollDraft } from '@/components/social-poll'
 
 type Locale = 'en' | 'ar'
 type Story = { id: string; authorId: string; body: string; mediaUrl: string | null; mediaType?: 'image' | 'video' | null; createdAt: string; expiresAt: string; authorName: string; authorUsername: string; authorAvatar: string | null; authorNameStyle: string | null; authorCustomTitle: string | null }
@@ -19,9 +20,9 @@ type DailyPost = { id: string; authorId: string; body: string; mediaUrl: string 
 type FeedData = { stories: Story[]; posts: DailyPost[]; nextCursor: string | null }
 
 const labels = {
-  en: { title: 'Stories & daily life', description: 'Small moments from the people in your community.', stories: 'Stories · 24 hours', moments: 'Daily moments', shareStory: 'Share a story', shareDaily: 'Share a daily moment', older: 'Load older moments', storyPlaceholder: 'What is happening right now?', dailyPlaceholder: 'A small moment worth sharing…', image: 'Add a photo or video', publishStory: 'Post story', publishDaily: 'Share moment', publishing: 'Publishing…', emptyStories: 'No active stories yet.', emptyPosts: 'Your everyday moments will be here.', imageAlt: 'Community moment', login: 'Log in with Discord to share a moment.', member: 'Join the Discord community to publish.', membershipUnavailable: 'Discord membership could not be checked. Please try again.', invalid: 'Check your text and image, then try again.', uploadError: 'The media upload failed. Please try again.', fileType: 'Choose an image, MP4, or WebM video.', fileSize: 'Images can be up to 10 MB; videos up to 40 MB and 60 seconds.', error: 'Could not publish this moment. Please try again.', openStory: 'Open story', closeStory: 'Close story', expires: 'Expires',
+  en: { title: 'Stories & daily life', description: 'Small moments from the people in your community.', stories: 'Stories · 24 hours', moments: 'Daily moments', shareStory: 'Share a story', shareDaily: 'Share a daily moment', older: 'Load older moments', storyPlaceholder: 'What is happening right now?', dailyPlaceholder: 'A small moment worth sharing…', image: 'Add a photo or video', publishStory: 'Post story', publishDaily: 'Share moment', publishing: 'Publishing…', emptyStories: 'No active stories yet.', emptyPosts: 'Your everyday moments will be here.', imageAlt: 'Community moment', login: 'Log in with Discord to share a moment.', member: 'Join the Discord community to publish.', membershipUnavailable: 'Discord membership could not be checked. Please try again.', invalid: 'Check your text and image, then try again.', uploadError: 'The media upload failed. Please try again.', fileType: 'Choose an image, MP4, or WebM video.', fileSize: 'Images can be up to 10 MB; videos up to 40 MB and 60 seconds.', error: 'Could not publish this moment. Please try again.', pollUnavailable: 'The story was published, but its poll could not be saved. Apply the database update and try again.', openStory: 'Open story', closeStory: 'Close story', expires: 'Expires',
   },
-  ar: { title: 'القصص والحياة اليومية', description: 'لحظات صغيرة من أفراد مجتمعك.', stories: 'القصص · ٢٤ ساعة', moments: 'لحظات يومية', shareStory: 'شارك قصة', shareDaily: 'شارك لحظة يومية', older: 'تحميل لحظات أقدم', storyPlaceholder: 'ما الذي يحدث الآن؟', dailyPlaceholder: 'لحظة صغيرة تستحق المشاركة…', image: 'أضف صورة أو فيديو', publishStory: 'نشر القصة', publishDaily: 'مشاركة اللحظة', publishing: 'جارٍ النشر…', emptyStories: 'لا توجد قصص نشطة بعد.', emptyPosts: 'ستظهر لحظاتك اليومية هنا.', imageAlt: 'لحظة من المجتمع', login: 'سجّل الدخول عبر Discord لمشاركة لحظة.', member: 'انضم إلى مجتمع Discord للنشر.', membershipUnavailable: 'تعذر التحقق من عضويتك في Discord. حاول مرة أخرى.', invalid: 'تحقق من النص والصورة ثم حاول مرة أخرى.', uploadError: 'تعذر رفع الملف. حاول مرة أخرى.', fileType: 'اختر صورة أو فيديو MP4 أو WebM.', fileSize: 'الصور حتى ١٠ ميغابايت والفيديو حتى ٤٠ ميغابايت و٦٠ ثانية.', error: 'تعذرت مشاركة اللحظة. حاول مرة أخرى.', openStory: 'عرض القصة', closeStory: 'إغلاق القصة', expires: 'تنتهي',
+  ar: { title: 'القصص والحياة اليومية', description: 'لحظات صغيرة من أفراد مجتمعك.', stories: 'القصص · ٢٤ ساعة', moments: 'لحظات يومية', shareStory: 'شارك قصة', shareDaily: 'شارك لحظة يومية', older: 'تحميل لحظات أقدم', storyPlaceholder: 'ما الذي يحدث الآن؟', dailyPlaceholder: 'لحظة صغيرة تستحق المشاركة…', image: 'أضف صورة أو فيديو', publishStory: 'نشر القصة', publishDaily: 'مشاركة اللحظة', publishing: 'جارٍ النشر…', emptyStories: 'لا توجد قصص نشطة بعد.', emptyPosts: 'ستظهر لحظاتك اليومية هنا.', imageAlt: 'لحظة من المجتمع', login: 'سجّل الدخول عبر Discord لمشاركة لحظة.', member: 'انضم إلى مجتمع Discord للنشر.', membershipUnavailable: 'تعذر التحقق من عضويتك في Discord. حاول مرة أخرى.', invalid: 'تحقق من النص والصورة ثم حاول مرة أخرى.', uploadError: 'تعذر رفع الملف. حاول مرة أخرى.', fileType: 'اختر صورة أو فيديو MP4 أو WebM.', fileSize: 'الصور حتى ١٠ ميغابايت والفيديو حتى ٤٠ ميغابايت و٦٠ ثانية.', error: 'تعذرت مشاركة اللحظة. حاول مرة أخرى.', pollUnavailable: 'تم نشر القصة، لكن تعذر حفظ الاستطلاع. طبّق تحديث قاعدة البيانات ثم حاول مجددًا.', openStory: 'عرض القصة', closeStory: 'إغلاق القصة', expires: 'تنتهي',
   },
 } satisfies Record<Locale, Record<string, string>>
 
@@ -40,6 +41,7 @@ export function StoriesSection({ viewer, locale, onSignIn, onCreateContent, onMe
 }) {
   const copy = labels[locale]
   const [storyBody, setStoryBody] = useState('')
+  const [storyPollDraft, setStoryPollDraft] = useState<PollDraft | null>(null)
   const [storyFile, setStoryFile] = useState<File | null>(null)
   const [dailyBody, setDailyBody] = useState('')
   const [dailyFile, setDailyFile] = useState<File | null>(null)
@@ -55,6 +57,8 @@ export function StoriesSection({ viewer, locale, onSignIn, onCreateContent, onMe
   const { data, mutate } = useSWR('/api/daily', fetchFeed, { refreshInterval: 30000 })
   const stories = data?.stories ?? []
   const posts = data?.posts ?? []
+  const storyPollKey = stories.length ? `/api/social/polls?contentType=story&ids=${stories.map((story) => story.id).join(',')}` : null
+  const { data: storyPolls, mutate: mutateStoryPolls } = useSWR(storyPollKey, fetchPolls, { refreshInterval: 10000 })
 
   async function openComposer(kind: 'story' | 'daily') {
     if (!viewer) return onSignIn()
@@ -111,6 +115,14 @@ export function StoriesSection({ viewer, locale, onSignIn, onCreateContent, onMe
     event?.preventDefault()
     if (!viewer) return onSignIn()
     if ((!storyBody.trim() && !storyFile) || storyBusy) return
+    if (storyPollDraft) {
+      const options = storyPollDraft.options.map((option) => option.trim().toLocaleLowerCase())
+      const endTime = storyPollDraft.endsAt ? new Date(storyPollDraft.endsAt) : null
+      if (options.some((option) => !option) || new Set(options).size !== options.length || (endTime && (!Number.isFinite(endTime.getTime()) || endTime <= new Date()))) {
+        setError(copy.invalid)
+        return
+      }
+    }
     setStoryBusy(true)
     setStoryProgress(0)
     setError('')
@@ -126,13 +138,39 @@ export function StoriesSection({ viewer, locale, onSignIn, onCreateContent, onMe
         throw new Error(result?.reason ?? result?.error ?? 'story_failed')
       }
       const createdStory = result.story
+      let pollFailed = false
+      if (storyPollDraft) {
+        try {
+          const pollResponse = await fetch('/api/social/polls', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contentType: 'story',
+              contentId: createdStory.id,
+              options: storyPollDraft.options,
+              endsAt: storyPollDraft.endsAt ? new Date(storyPollDraft.endsAt).toISOString() : null,
+            }),
+          })
+          if (!pollResponse.ok) throw new Error(`poll_create_${pollResponse.status}`)
+          const pollResult = await pollResponse.json() as { poll?: { id: string; options: string[]; endsAt: string | null } }
+          if (!pollResult.poll) throw new Error('poll_create_response_invalid')
+          const optionCounts = pollResult.poll.options.map(() => 0)
+          const newPoll = { ...pollResult.poll, contentId: createdStory.id, totalVotes: 0, optionCounts, percentages: optionCounts, hasVoted: false, ended: false }
+          void mutateStoryPolls((current) => ({ polls: [newPoll, ...(current?.polls ?? [])], available: true }), false)
+        } catch (error) {
+          pollFailed = true
+          console.error('[social-polls] poll could not be saved with story', { contentId: createdStory.id, error })
+        }
+      }
       void mutate((current) => {
         const feed = current ?? { stories: [], posts: [], nextCursor: null }
         return { ...feed, stories: [createdStory, ...feed.stories.filter((story) => story.id !== createdStory.id)].slice(0, 30) }
       }, false)
       setStoryBody('')
       setStoryFile(null)
+      setStoryPollDraft(null)
       setComposerOpen(null)
+      if (pollFailed) setError(copy.pollUnavailable)
     } catch (caught) {
       const code = caught instanceof Error ? caught.message : ''
       console.error('[stories] publish flow failed', { message: code })
@@ -214,6 +252,7 @@ export function StoriesSection({ viewer, locale, onSignIn, onCreateContent, onMe
         {composerOpen === 'story' ? (
           <form className="story-composer" onSubmit={publishStory}>
             <MentionTextarea value={storyBody} onChange={setStoryBody} locale={locale} placeholder={copy.storyPlaceholder} maxLength={500} rows={3} className="story-composer-textarea" />
+            <PollComposer value={storyPollDraft} onChange={setStoryPollDraft} locale={locale} />
             <div className="story-composer-actions">
               <label className="reel-file-picker">
                 <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" aria-label={copy.image} onChange={(event) => { const file = event.target.files?.[0] ?? null; if (validateFile(file)) setStoryFile(file); event.currentTarget.value = '' }} />
@@ -239,7 +278,7 @@ export function StoriesSection({ viewer, locale, onSignIn, onCreateContent, onMe
         {error && <p className="stories-error" role="alert">{error}</p>}
       </ModalPortal>}
       <section className="story-strip" aria-labelledby="story-strip-title"><div className="stories-section-heading"><h2 id="story-strip-title">{copy.stories}</h2><span>{stories.length}</span></div>{stories.length ? <div className="story-card-list">{stories.map((story) => <button className="story-card" type="button" key={story.id} onClick={() => setActiveStory(story)} aria-label={`${copy.openStory}: ${story.authorName}`}><span className="story-avatar">{story.authorAvatar ? <img src={story.authorAvatar} alt="" /> : <UserRound aria-hidden="true" />}</span><UserName userId={story.authorId} name={story.authorName} username={story.authorUsername} createdAt={story.createdAt} nameStyle={story.authorNameStyle} customTitle={story.authorCustomTitle} locale={locale} /></button>)}</div> : <p className="stories-empty">{copy.emptyStories}</p>}</section>
-      {activeStory && <ModalPortal backdropClassName="story-viewer-backdrop" dialogClassName="story-viewer" labelId="story-viewer-title" onClose={() => setActiveStory(null)}><div className="story-viewer-header"><div>{activeStory.authorAvatar ? <img src={activeStory.authorAvatar} alt="" /> : <UserRound aria-hidden="true" />}<UserName userId={activeStory.authorId} name={activeStory.authorName} username={activeStory.authorUsername} createdAt={activeStory.createdAt} nameStyle={activeStory.authorNameStyle} customTitle={activeStory.authorCustomTitle} locale={locale} /></div><Button type="button" size="sm" variant="ghost" onClick={() => setActiveStory(null)}>{copy.closeStory}</Button></div>{activeStory.mediaUrl && (activeStory.mediaType === 'video' ? <video className="story-viewer-media" src={activeStory.mediaUrl} controls autoPlay playsInline /> : <img className="story-viewer-media" src={activeStory.mediaUrl} alt={copy.imageAlt} />)}{activeStory.body && <p>{activeStory.body}</p>}<small>{copy.expires} {new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(activeStory.expiresAt))}</small></ModalPortal>}
+      {activeStory && <ModalPortal backdropClassName="story-viewer-backdrop" dialogClassName="story-viewer" labelId="story-viewer-title" onClose={() => setActiveStory(null)}><div className="story-viewer-header"><div>{activeStory.authorAvatar ? <img src={activeStory.authorAvatar} alt="" /> : <UserRound aria-hidden="true" />}<UserName userId={activeStory.authorId} name={activeStory.authorName} username={activeStory.authorUsername} createdAt={activeStory.createdAt} nameStyle={activeStory.authorNameStyle} customTitle={activeStory.authorCustomTitle} locale={locale} /></div><Button type="button" size="sm" variant="ghost" onClick={() => setActiveStory(null)}>{copy.closeStory}</Button></div>{activeStory.mediaUrl && (activeStory.mediaType === 'video' ? <video className="story-viewer-media" src={activeStory.mediaUrl} controls autoPlay playsInline /> : <img className="story-viewer-media" src={activeStory.mediaUrl} alt={copy.imageAlt} />)}{activeStory.body && <p>{activeStory.body}</p>}{storyPolls?.polls.filter((poll) => poll.contentId === activeStory.id).map((poll) => <PollCard key={poll.id} poll={poll} locale={locale} canVote={Boolean(viewer)} onSignIn={onSignIn} onVote={(updated) => void mutateStoryPolls((current) => updatePollResponse(current, updated), false)} />)}<small>{copy.expires} {new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(activeStory.expiresAt))}</small></ModalPortal>}
       <section className="daily-post-list" aria-labelledby="daily-list-title"><div className="stories-section-heading"><h2 id="daily-list-title">{copy.moments}</h2><span>{posts.length}</span></div>{posts.length ? posts.map((post) => <article className="daily-post-card" key={post.id}><header className="daily-post-author">{post.authorAvatar ? <img src={post.authorAvatar} alt="" /> : <span><UserRound aria-hidden="true" /></span>}<a href={`/u/${encodeURIComponent(post.authorUsername)}`}><UserName userId={post.authorId} name={post.authorName} username={post.authorUsername} createdAt={post.authorCreatedAt} nameStyle={post.authorNameStyle} customTitle={post.authorCustomTitle} locale={locale} /></a><time dateTime={post.createdAt}>{new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(post.createdAt))}</time></header>{post.body && <p className="daily-post-body"><RichText text={post.body} /></p>}{post.mediaUrl && <img className="daily-post-media" src={post.mediaUrl} alt={copy.imageAlt} />}{post.tags.length > 0 && <div className="tag-row">{post.tags.map((tag) => <a className="post-tag" key={tag} href={`/tags/${encodeURIComponent(tag)}?lang=${locale}`} dir="ltr">#{tag}</a>)}</div>}<PostEngagement type="daily" contentId={post.id} authorId={post.authorId} viewer={viewer} locale={locale} onSignIn={onSignIn} /></article>) : <p className="stories-empty">{copy.emptyPosts}</p>}{data?.nextCursor && <Button type="button" size="sm" variant="outline" onClick={() => void loadOlderPosts()} disabled={loadingOlder}>{loadingOlder ? copy.publishing : copy.older}<ArrowUpRight data-icon="inline-end" /></Button>}</section>
     </section>
   )

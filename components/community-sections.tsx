@@ -5,7 +5,7 @@ import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState
 import { createPortal } from 'react-dom'
 import {   ArrowUpRight,
   BadgeCheck,
-  Ban, Eye, Check, Flag, Heart, Link2, MapPin, MessageCircle, MoreHorizontal, Pencil, Plus, Repeat2, Search, ShieldAlert, Upload, UserRound, Video, X } from 'lucide-react'
+  Ban, Bookmark, Eye, Check, Flag, Heart, Link2, MapPin, MessageCircle, MoreHorizontal, Pencil, Pin, Plus, Repeat2, Search, ShieldAlert, Upload, UserRound, Video, X } from 'lucide-react'
 import type { CommunityReel } from '@/lib/reels'
 import type { NewsPost } from '@/lib/news'
 import type { CurrentUser } from '@/lib/session'
@@ -45,7 +45,7 @@ const profileCopy = {
     posts: 'News', postsStat: 'Posts', reels: 'Reels', xp: 'XP', badges: 'Community badges', earned: 'Earned', next: 'Next milestone',
     copy: 'Copy profile link', copied: 'Link copied', copyError: 'Could not copy the profile link.', saveError: 'Could not save your profile.', usernameTaken: 'Username is already taken.',
     invalid: 'Use at least 3 characters for a regular username. 1–2 character handles require the Verified badge.', empty: 'No updates have been shared yet.', verified: 'Discord connected', privateVisits: 'Your profile visits', lastSevenDays: 'Last 7 days', noVisits: 'No visits yet',
-    showVisits: 'Show profile visits publicly', showVisitsHint: 'Let visitors see the number of member visits.', profileVisits: 'Profile visits', views: 'visits', followers: 'followers', followingCount: 'following', hideLikes: 'Hide my likes from lists', hideLikesHint: 'Your likes will not appear in member lists.', hideReposts: 'Hide my reposts', hideRepostsHint: 'Only you can see your reposts on your profile.', likesTab: 'Likes', message: 'Message', follow: 'Follow', following: 'Following', followBack: 'Follow back', followError: 'Could not update follow status.'
+    showVisits: 'Show profile visits publicly', showVisitsHint: 'Let visitors see the number of member visits.', profileVisits: 'Profile visits', views: 'visits', followers: 'followers', followingCount: 'following', hideLikes: 'Hide my likes from lists', hideLikesHint: 'Your likes will not appear in member lists.', hideReposts: 'Hide my reposts', hideRepostsHint: 'Only you can see your reposts on your profile.', likesTab: 'Likes', message: 'Message', follow: 'Follow', following: 'Following', followBack: 'Follow back', followError: 'Could not update follow status.', pinPost: 'Pin to profile', unpinPost: 'Unpin post', pinnedPost: 'Pinned to profile', pinError: 'Could not update your pinned post.', pinUnavailable: 'Profile pinning is unavailable until the database update is applied.'
   },
   ar: {
     about: 'نبذة عني', edit: 'تعديل الملف', save: 'حفظ التغييرات', cancel: 'إلغاء', saving: 'جارٍ الحفظ…', postsTab: 'المنشورات', repostsTab: 'إعادات النشر', repostedBy: 'أعاد النشر',
@@ -54,7 +54,7 @@ const profileCopy = {
     posts: 'الأخبار', postsStat: 'المنشورات', reels: 'ريلز', xp: 'نقاط الخبرة', badges: 'شارات المجتمع', earned: 'مكتسبة', next: 'الإنجاز التالي',
     copy: 'نسخ رابط الملف', copied: 'تم نسخ الرابط', copyError: 'تعذر نسخ رابط الملف الشخصي.', saveError: 'تعذر حفظ الملف الشخصي.', usernameTaken: 'اسم المستخدم مستخدم بالفعل.',
     invalid: 'يجب أن يتكون اسم المستخدم العادي من ٣ أحرف على الأقل. تتطلب الأسماء من حرف أو حرفين شارة التوثيق.', empty: 'لم تتم مشاركة أي تحديثات بعد.', verified: 'Discord متصل', privateVisits: 'زيارات ملفك', lastSevenDays: 'آخر ٧ أيام', noVisits: 'لا توجد زيارات بعد',
-    showVisits: 'إظهار زيارات الملف', showVisitsHint: 'اسمح للزوار برؤية عدد زيارات الأعضاء.', profileVisits: 'زيارات الملف', views: 'زيارة', followers: 'متابع', followingCount: 'يتابع', hideLikes: 'إخفاء إعجاباتي من القوائم', hideLikesHint: 'لن تظهر إعجاباتك في قوائم الأعضاء.', hideReposts: 'إخفاء إعادات النشر', hideRepostsHint: 'ستظهر إعادات النشر لك فقط في ملفك.', likesTab: 'الإعجابات', message: 'مراسلة', follow: 'متابعة', following: 'تتابعه', followBack: 'متابعة متبادلة', followError: 'تعذر تحديث المتابعة.'
+    showVisits: 'إظهار زيارات الملف', showVisitsHint: 'اسمح للزوار برؤية عدد زيارات الأعضاء.', profileVisits: 'زيارات الملف', views: 'زيارة', followers: 'متابع', followingCount: 'يتابع', hideLikes: 'إخفاء إعجاباتي من القوائم', hideLikesHint: 'لن تظهر إعجاباتك في قوائم الأعضاء.', hideReposts: 'إخفاء إعادات النشر', hideRepostsHint: 'ستظهر إعادات النشر لك فقط في ملفك.', likesTab: 'الإعجابات', message: 'مراسلة', follow: 'متابعة', following: 'تتابعه', followBack: 'متابعة متبادلة', followError: 'تعذر تحديث المتابعة.', pinPost: 'تثبيت في الملف الشخصي', unpinPost: 'إلغاء تثبيت المنشور', pinnedPost: 'مثبت في الملف الشخصي', pinError: 'تعذر تحديث المنشور المثبت.', pinUnavailable: 'ميزة تثبيت المنشور غير متاحة حتى تطبيق تحديث قاعدة البيانات.'
   },
 } satisfies Record<Locale, Record<string, string>>
 
@@ -136,9 +136,18 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
   const countsUrl = `/api/social/follows?userId=${encodeURIComponent(profile.id)}&countsOnly=true`
   const { data: liveRelationshipCounts, mutate: mutateRelationshipCounts } = useSWR<FollowCounts>(viewer ? countsUrl : null, fetchFollowCounts)
   const { data: visitStats } = useSWR<ProfileVisitStats>(editable ? '/api/profile/visits' : null, fetchProfileVisits)
+  const { data: pinData, mutate: mutateProfilePin } = useSWR<{ postId: string | null; available: boolean }>(
+    `/api/profile/pin?userId=${encodeURIComponent(profile.id)}`,
+    async (url: string) => {
+      const response = await fetch(url, { cache: 'no-store' })
+      if (!response.ok) throw new Error('profile_pin_failed')
+      return response.json()
+    },
+  )
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [pinError, setPinError] = useState('')
   const [copied, setCopied] = useState(false)
   const [copyFailed, setCopyFailed] = useState(false)
   const [moderationBusy, setModerationBusy] = useState(false)
@@ -249,6 +258,29 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
           : usernameAvailability?.available ? labels.usernameAvailable
             : checkingUsername ? labels.usernameChecking : ''
   const usernameAvailable = Boolean(usernameAvailability?.valid && usernameAvailability.available)
+  const orderedPosts = useMemo(() => pinData?.postId
+    ? [...posts].sort((first, second) => Number(second.id === pinData.postId) - Number(first.id === pinData.postId))
+    : posts, [pinData?.postId, posts])
+
+  async function togglePinnedPost(postId: string) {
+    if (!editable || !pinData?.available) return
+    const nextPostId = pinData.postId === postId ? null : postId
+    const previous = pinData
+    setPinError('')
+    await mutateProfilePin({ postId: nextPostId, available: true }, false)
+    try {
+      const response = await fetch('/api/profile/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId: nextPostId }),
+      })
+      if (!response.ok) throw new Error('profile_pin_failed')
+    } catch (caught) {
+      console.error('[profile-pin] update request failed', { postId: nextPostId, error: caught })
+      await mutateProfilePin(previous, false)
+      setPinError(labels.pinError)
+    }
+  }
 
   async function toggleProfileFollow() {
     if (!followKey || !followData) return
@@ -441,13 +473,22 @@ export function ProfileSection({ profile, posts, reels, locale, editable, profil
             <BadgeCollection userId={profile.id} locale={locale} editable={editable} />
           </section>
           <section className="profile-posts" aria-labelledby="profile-posts-title">
+            {pinError && <p className="profile-action-error" role="alert">{pinError}</p>}
+            {editable && pinData?.available === false && <p className="profile-action-error" role="status">{labels.pinUnavailable}</p>}
             <div className="profile-content-tabs" role="tablist" aria-label={locale === 'ar' ? 'محتوى الملف الشخصي' : 'Profile content'}>
               <button type="button" role="tab" aria-selected={profileTab === 'posts'} className={profileTab === 'posts' ? 'profile-content-tab profile-content-tab-active' : 'profile-content-tab'} onClick={() => setProfileTab('posts')}>{labels.postsTab}<span>{posts.length + reels.length}</span></button>
               <button type="button" role="tab" aria-selected={profileTab === 'reposts'} className={profileTab === 'reposts' ? 'profile-content-tab profile-content-tab-active' : 'profile-content-tab'} onClick={() => setProfileTab('reposts')}>{labels.repostsTab}<span>{repostData?.reposts.length ?? 0}</span></button>
               {editable && <button type="button" role="tab" aria-selected={profileTab === 'likes'} className={profileTab === 'likes' ? 'profile-content-tab profile-content-tab-active' : 'profile-content-tab'} onClick={() => setProfileTab('likes')}>{labels.likesTab}<span>{likedReelData?.reels.length ?? 0}</span></button>}
             </div>
             {profileTab === 'posts' ? posts.length || reels.length ? <div className="news-list">
-              {posts.map((post) => <article className="search-post" key={post.id}><UserName userId={profile.id} name={profile.displayName} username={profile.username} createdAt={profile.accountCreatedAt} nameStyle={profile.nameStyle} customTitle={profile.customTitle} locale={locale} /><span className="category-pill">{post.category}</span><h3>{post.title}</h3><p><RichText text={post.body} /></p><PostEngagement type="news" contentId={post.id} authorId={profile.id} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(`/u/${profile.username}`)}`))} /></article>)}
+              {orderedPosts.map((post) => <article className="search-post" key={post.id}>
+                <UserName userId={profile.id} name={profile.displayName} username={profile.username} createdAt={profile.accountCreatedAt} nameStyle={profile.nameStyle} customTitle={profile.customTitle} locale={locale} />
+                <span className="category-pill">{post.category}</span>
+                {pinData?.postId === post.id && <span className="profile-pinned-label"><Pin aria-hidden="true" />{labels.pinnedPost}</span>}
+                {editable && pinData?.available && <button className="profile-pin-button" type="button" onClick={() => void togglePinnedPost(post.id)}><Pin aria-hidden="true" />{pinData.postId === post.id ? labels.unpinPost : labels.pinPost}</button>}
+                <h3>{post.title}</h3><p><RichText text={post.body} /></p>
+                <PostEngagement type="news" contentId={post.id} authorId={profile.id} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(`/u/${profile.username}`)}`))} />
+              </article>)}
               {reels.map((reel) => <article className="search-post" key={reel.id}><UserName userId={profile.id} name={profile.displayName} username={profile.username} createdAt={profile.accountCreatedAt} nameStyle={profile.nameStyle} customTitle={profile.customTitle} locale={locale} /><span className="category-pill">{labels.reels}</span><h3>{reel.caption ? <RichText text={reel.caption} /> : labels.reels}</h3><video className="profile-reel-player" controls playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.reels} /><PostEngagement type="reel" contentId={reel.id} authorId={profile.id} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(`/u/${profile.username}`)}`))} /></article>)}
             </div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Video aria-hidden="true" /></span><h2>{labels.empty}</h2></div> : profileTab === 'likes' ? likedReelData?.reels.length ? <div className="news-list">{likedReelData.reels.map((reel) => <article className="search-post" key={reel.id}><h3>{reel.caption ? <RichText text={reel.caption} /> : labels.reels}</h3><video className="profile-reel-player" controls playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.reels} /><PostEngagement type="reel" contentId={reel.id} authorId={reel.authorId} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign('/auth/login'))} /></article>)}</div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Heart aria-hidden="true" /></span><h2>{labels.empty}</h2></div> : repostData?.reposts.length ? <div className="news-list">{repostData.reposts.map((repost) => <article className="search-post profile-repost-card" key={`${repost.type}-${repost.id}`}><span className="profile-repost-label"><Repeat2 aria-hidden="true" />{labels.repostedBy} @{profile.username}</span><span className="category-pill">{repost.type === 'reel' ? labels.reels : repost.type}</span><h3>{repost.type === 'reel' ? repost.caption || labels.reels : repost.type === 'news' ? repost.title : locale === 'ar' ? 'منشور يومي' : 'Daily post'}</h3>{repost.type !== 'reel' && repost.body && <p><RichText text={repost.body} /></p>}{repost.type === 'reel' && repost.videoUrl && <video className="profile-reel-player" controls playsInline preload="metadata" src={repost.videoUrl} />}<a className="profile-repost-original" href={`/#${repost.type}-${repost.id}`}>{repost.authorName} · @{repost.authorUsername}</a><PostEngagement type={repost.type} contentId={repost.id} authorId={repost.authorId} viewer={viewer ?? null} locale={locale} onSignIn={onSignIn ?? (() => window.location.assign(`/auth/login?returnTo=${encodeURIComponent(`/u/${profile.username}`)}`))} /></article>)}</div> : <div className="section-empty profile-empty"><span className="section-empty-icon"><Repeat2 aria-hidden="true" /></span><h2>{labels.empty}</h2></div>}
             {relationshipDirection && <RelationshipModal
@@ -492,9 +533,39 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
   const [progress, setProgress] = useState(0)
   const [publishing, setPublishing] = useState(false)
   const [error, setError] = useState('')
+  const [bookmarkError, setBookmarkError] = useState('')
   const [composerOpen, setComposerOpen] = useState(false)
   const [likedReelIds, setLikedReelIds] = useState<Set<string>>(() => new Set())
+  const reelBookmarkKey = viewer ? `/api/social/bookmarks?contentType=reel&ids=${reels.map((reel) => reel.id).join(',')}` : null
+  const { data: savedReels, mutate: mutateSavedReels } = useSWR<{ savedIds: string[]; available: boolean }>(reelBookmarkKey, async (url: string) => {
+    const response = await fetch(url, { cache: 'no-store' })
+    if (!response.ok) throw new Error('bookmarks_failed')
+    return response.json()
+  })
   const visibleReels = reels.filter((reel) => !likedReelIds.has(reel.id))
+
+  async function toggleReelBookmark(reelId: string) {
+    if (!viewer) return onSignIn()
+    const wasSaved = savedReels?.savedIds.includes(reelId) ?? false
+    const previous = savedReels
+    const savedIds = new Set(previous?.savedIds ?? [])
+    if (wasSaved) savedIds.delete(reelId)
+    else savedIds.add(reelId)
+    setBookmarkError('')
+    await mutateSavedReels({ savedIds: [...savedIds], available: previous?.available ?? true }, false)
+    try {
+      const response = await fetch('/api/social/bookmarks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contentType: 'reel', contentId: reelId, saved: !wasSaved }),
+      })
+      if (!response.ok) throw new Error('bookmark_update_failed')
+    } catch (caught) {
+      console.error('[social-bookmarks] Reel toggle failed', { contentId: reelId, error: caught })
+      await mutateSavedReels(previous, false)
+      setBookmarkError(locale === 'ar' ? 'تعذر تحديث المحفوظات.' : 'Could not update saved items.')
+    }
+  }
 
   async function openComposer() {
     if (!viewer) return onSignIn()
@@ -561,6 +632,7 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
           ? <button className="section-primary-button reel-compose-trigger" type="button" onClick={() => void openComposer()}><Plus aria-hidden="true" />{labels.publish}</button>
           : <button className="section-primary-button reel-compose-trigger" type="button" onClick={onSignIn}>{labels.signIn}<ArrowUpRight aria-hidden="true" /></button>}
       </div>
+      {bookmarkError && <p className="profile-action-error" role="alert">{bookmarkError}</p>}
       {composerOpen && <ModalPortal backdropClassName="social-composer-modal-backdrop" dialogClassName="social-composer-modal reel-composer-modal" labelId="reel-composer-title" onClose={() => { if (!publishing) setComposerOpen(false) }}>
         <div className="social-composer-modal-heading"><h2 id="reel-composer-title">{labels.publish}</h2><button className="icon-button" type="button" disabled={publishing} onClick={() => setComposerOpen(false)} aria-label={locale === 'ar' ? 'إغلاق' : 'Close'}><X aria-hidden="true" /></button></div>
         <form className="reel-composer" onSubmit={publishReel}>
@@ -572,12 +644,14 @@ export function ReelsSection({ locale, viewer, initialReels, onSignIn, onCreateC
         </form>
       </ModalPortal>}
       {visibleReels.length ? <div className="reel-feed" role="region" aria-label={labels.title} tabIndex={0}><div className="reel-list">{visibleReels.map((reel) => <article className="reel-card reel-slide" id={`reel-${reel.id}`} key={reel.id}>
+        <div className="reel-stage">
         <video className="reel-video" controls playsInline preload="metadata" src={reel.videoUrl} aria-label={reel.caption || labels.title} />
-        <div className="reel-card-content"><div className="reel-author"><span>{reel.authorAvatar ? <img src={reel.authorAvatar} alt="" /> : <UserRound aria-hidden="true" />}</span><a href={`/u/${encodeURIComponent(reel.authorUsername)}`}><UserName userId={reel.authorId} name={reel.authorName} username={reel.authorUsername} createdAt={reel.authorCreatedAt} nameStyle={reel.authorNameStyle} customTitle={reel.authorCustomTitle} locale={locale} /></a></div>
+        <div className="reel-card-content"><div className="reel-author"><span>{reel.authorAvatar ? <img src={reel.authorAvatar} alt="" /> : <UserRound aria-hidden="true" />}</span><a href={`/u/${encodeURIComponent(reel.authorUsername)}`}><UserName userId={reel.authorId} name={reel.authorName} username={reel.authorUsername} createdAt={reel.authorCreatedAt} nameStyle={reel.authorNameStyle} customTitle={reel.authorCustomTitle} locale={locale} /></a><button type="button" className={`reel-bookmark-button ${savedReels?.savedIds.includes(reel.id) ? 'reel-bookmark-saved' : ''}`} aria-label={locale === 'ar' ? 'حفظ الريل' : 'Save Reel'} onClick={() => void toggleReelBookmark(reel.id)}>{savedReels?.savedIds.includes(reel.id) ? <Check aria-hidden="true" /> : <Bookmark aria-hidden="true" />}</button></div>
           {reel.caption && <p><RichText text={reel.caption} /></p>}
           {reel.tags.length > 0 && <div className="tag-row">{reel.tags.map((tag) => <a className="post-tag" key={tag} href={`/tags/${encodeURIComponent(tag)}?lang=${locale}`}>#{tag}</a>)}</div>}
         </div>
         <PostEngagement type="reel" contentId={reel.id} authorId={reel.authorId} viewer={viewer} locale={locale} onSignIn={onSignIn} variant="reel" onLikeChange={(liked) => setLikedReelIds((current) => { const next = new Set(current); if (liked) next.add(reel.id); else next.delete(reel.id); return next })} />
+        </div>
       </article>)}</div></div> : <div className="section-empty reels-empty"><span className="section-empty-icon"><Video aria-hidden="true" /></span><h2>{labels.empty}</h2><p>{labels.emptyBody}</p></div>}
     </section>
   )
