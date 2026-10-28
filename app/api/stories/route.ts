@@ -4,7 +4,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireLoggedInServerMember } from '@/lib/server-member'
 import { awardXp } from '@/lib/gamification'
 import { db } from '@/lib/db'
-import { disloopStories, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
+import { disloopStories, disloopStoryVisibility, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
+import { visibleStories } from '@/lib/close-friends'
 import { isSameOriginRequest } from '@/lib/security'
 import { getCurrentUser } from '@/lib/session'
 import { rateLimitResponse } from '@/lib/rate-limit'
@@ -18,6 +19,7 @@ function isAllowedStoryMediaUrl(value: string, userId: string) {
 
 export async function GET() {
   try {
+    const viewer = await getCurrentUser()
     const stories = await db.select({
       id: disloopStories.id,
       authorId: disloopStories.authorId,
@@ -37,8 +39,9 @@ export async function GET() {
       .where(gt(disloopStories.expiresAt, new Date()))
       .orderBy(desc(disloopStories.createdAt))
       .limit(30)
-    return NextResponse.json({ stories: stories.map((story) => ({ ...story, createdAt: story.createdAt.toISOString(), expiresAt: story.expiresAt.toISOString() })) }, {
-      headers: { 'Cache-Control': 'public, max-age=15, stale-while-revalidate=30' },
+    const visible = await visibleStories(stories, viewer?.id ?? null)
+    return NextResponse.json({ stories: visible.map((story) => ({ ...story, createdAt: story.createdAt.toISOString(), expiresAt: story.expiresAt.toISOString() })) }, {
+      headers: { 'Cache-Control': 'private, no-store' },
     })
   } catch (error) {
     return NextResponse.json(apiFailurePayload('stories_failed', error, 'GET /api/stories'), { status: 500 })
@@ -55,6 +58,7 @@ export async function POST(request: NextRequest) {
   const data = await parseJsonBody(request, z.object({
     body: z.string().max(500).optional(),
     mediaUrl: z.string().max(2048).nullable().optional(),
+    closeFriendsOnly: z.boolean().optional(),
   }).strict())
   if (!data) return NextResponse.json({ error: 'invalid_story' }, { status: 400 })
   const body = (data.body ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e\u001f]/g, '').trim()
@@ -65,11 +69,19 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const [story] = await db.insert(disloopStories).values({ authorId: user.id, body, mediaUrl, mediaType })
-      .returning({ id: disloopStories.id, authorId: disloopStories.authorId, body: disloopStories.body, mediaUrl: disloopStories.mediaUrl, mediaType: disloopStories.mediaType, createdAt: disloopStories.createdAt, expiresAt: disloopStories.expiresAt })
+    const [story] = await db.transaction(async (tx) => {
+      const [created] = await tx.insert(disloopStories).values({ authorId: user.id, body, mediaUrl, mediaType })
+        .returning({ id: disloopStories.id, authorId: disloopStories.authorId, body: disloopStories.body, mediaUrl: disloopStories.mediaUrl, mediaType: disloopStories.mediaType, createdAt: disloopStories.createdAt, expiresAt: disloopStories.expiresAt })
+      if (data.closeFriendsOnly) await tx.insert(disloopStoryVisibility).values({ storyId: created.id, authorId: user.id, closeFriendsOnly: true })
+      return [created]
+    })
     const xp = await awardXp(user.id, 2, 'story_published', `story:${story.id}`).catch(() => null)
-    return NextResponse.json({ story: { ...story, createdAt: story.createdAt.toISOString(), expiresAt: story.expiresAt.toISOString(), authorName: user.displayName, authorUsername: user.username, authorAvatar: user.avatarUrl }, xp }, { status: 201 })
+    return NextResponse.json({ story: { ...story, closeFriendsOnly: data.closeFriendsOnly ?? false, createdAt: story.createdAt.toISOString(), expiresAt: story.expiresAt.toISOString(), authorName: user.displayName, authorUsername: user.username, authorAvatar: user.avatarUrl }, xp }, { status: 201 })
   } catch (error) {
+    if (data.closeFriendsOnly) {
+      console.error('[stories] close-friends story creation unavailable', { userId: user.id, error })
+      return NextResponse.json({ error: 'close_friends_unavailable' }, { status: 503 })
+    }
     return NextResponse.json(apiFailurePayload('story_publish_failed', error, 'POST /api/stories'), { status: 500 })
   }
 }

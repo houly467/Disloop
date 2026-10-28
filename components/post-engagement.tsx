@@ -9,6 +9,7 @@ import type { CurrentUser } from '@/lib/session'
 import { formatSocialCount, getOptimisticLikeState } from '@/lib/social-ui'
 import { UserName } from '@/components/user-name'
 import { ReportButton } from '@/components/report-dialog'
+import { TranslateText } from '@/components/translate-text'
 
 type Locale = 'en' | 'ar'
 type ContentType = 'news' | 'reel' | 'daily'
@@ -287,7 +288,7 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
         <div className="social-comment-avatar">{comment.authorAvatar ? <img src={comment.authorAvatar} alt="" /> : <span>{comment.authorName.charAt(0)}</span>}</div>
         <div className="social-comment-main">
           <div className="social-comment-heading"><a href={`/u/${encodeURIComponent(comment.authorUsername)}`}><UserName userId={comment.authorId} name={comment.authorName} username={comment.authorUsername} createdAt={comment.authorCreatedAt} nameStyle={comment.authorNameStyle} customTitle={comment.authorCustomTitle} locale={locale} /></a><time dateTime={comment.createdAt}>{formatDate(comment.createdAt, locale)}</time></div>
-          <p><RichText text={comment.body} /></p>
+          <p><RichText text={comment.body} /></p><TranslateText text={comment.body} locale={locale} />
           <div className="social-comment-controls">
             {comment.isPinned && <span className="comment-pinned-pill"><Pin aria-hidden="true" />{copy.pinned}</span>}
             <button type="button" className="social-reply-button" onClick={() => beginReply(comment, rootId ?? comment.id)}>{copy.reply}</button>

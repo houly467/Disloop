@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import useSWR from 'swr'
 import {
   ArrowUpRight,
+  Award,
   Bell,
   Bookmark,
   Check,
@@ -49,6 +50,7 @@ import { PostEngagement } from '@/components/post-engagement'
 import { NewAccountBadge } from '@/components/new-account-badge'
 import { EquippedBadges } from '@/components/badge-display'
 import { RichText } from '@/components/mention-textarea'
+import { TranslateText } from '@/components/translate-text'
 import { StoriesSection } from '@/components/stories-section'
 import { compressImage } from '@/lib/image-compression'
 import { uploadMedia } from '@/lib/client-upload'
@@ -60,10 +62,12 @@ import { ProfileOnboarding } from '@/components/profile-onboarding'
 import { BackButton } from '@/components/back-button'
 import { UserName } from '@/components/user-name'
 import { DiscordJoinModal } from '@/components/discord-join-modal'
+import { ChallengesPanel } from '@/components/challenges-panel'
+import { CreatorStatsPage } from '@/components/profile-tools'
 
 type Locale = 'en' | 'ar'
-type MainSection = 'news' | 'reels' | 'stories' | 'search' | 'profile' | 'messages' | 'groups' | 'notifications' | 'saved'
-const navigationSections = new Set<MainSection>(['news', 'reels', 'stories', 'search', 'profile', 'messages', 'groups', 'notifications', 'saved'])
+type MainSection = 'news' | 'reels' | 'stories' | 'search' | 'profile' | 'messages' | 'groups' | 'notifications' | 'saved' | 'leaderboard' | 'creator-stats'
+const navigationSections = new Set<MainSection>(['news', 'reels', 'stories', 'search', 'profile', 'messages', 'groups', 'notifications', 'saved', 'leaderboard', 'creator-stats'])
 type Theme = 'dark' | 'light'
 type Category = 'all' | 'server' | 'updates' | 'community' | 'events'
 
@@ -84,7 +88,7 @@ type NewsAppProps = {
 const copy = {
   en: {
     tagline: 'A little closer, every day.',
-    news: 'News', reels: 'Reels', stories: 'Stories', search: 'Search', profile: 'Profile', messages: 'Messages', groups: 'Groups', notifications: 'Notifications', saved: 'Saved',
+    news: 'News', reels: 'Reels', stories: 'Stories', search: 'Search', profile: 'Profile', messages: 'Messages', groups: 'Groups', notifications: 'Notifications', saved: 'Saved', leaderboard: 'Leaderboard', creatorStats: 'Creator stats',
     language: 'العربية', themeDark: 'Switch to light theme', themeLight: 'Switch to dark theme',
     signIn: 'Log in with Discord', signOut: 'Sign out', create: 'Write a post',
     eyebrow: 'THE COMMUNITY, IN THE LOOP',
@@ -124,7 +128,7 @@ const copy = {
   },
   ar: {
     tagline: 'أقرب لبعض، كل يوم.',
-    news: 'الأخبار', reels: 'ريلز', stories: 'القصص', search: 'بحث', profile: 'الملف الشخصي', messages: 'الرسائل', groups: 'المجموعات', notifications: 'الإشعارات', saved: 'المحفوظات',
+    news: 'الأخبار', reels: 'ريلز', stories: 'القصص', search: 'بحث', profile: 'الملف الشخصي', messages: 'الرسائل', groups: 'المجموعات', notifications: 'الإشعارات', saved: 'المحفوظات', leaderboard: 'المتصدرون', creatorStats: 'إحصاءات المنشئ',
     language: 'English', themeDark: 'التبديل إلى المظهر الفاتح', themeLight: 'التبديل إلى المظهر الداكن',
     signIn: 'تسجيل الدخول عبر Discord', signOut: 'تسجيل الخروج', create: 'اكتب منشورًا',
     eyebrow: 'مجتمعنا، لحظة بلحظة',
@@ -188,6 +192,7 @@ export function NewsApp({
 }: NewsAppProps) {
   const [locale, setLocale] = useState<Locale>('en')
   const [theme, setTheme] = useState<Theme>('dark')
+  const [readingMode, setReadingMode] = useState(false)
   const [posts, setPosts] = useState(initialPosts)
   const [reels, setReels] = useState(initialReels)
   const [profilePosts, setProfilePosts] = useState(initialProfilePosts)
@@ -313,6 +318,14 @@ export function NewsApp({
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
+
+  useEffect(() => {
+    setReadingMode(window.localStorage.getItem('disloop-news-reading-mode') === 'true')
+  }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem('disloop-news-reading-mode', String(readingMode))
+  }, [readingMode])
 
   useEffect(() => {
     const dialog = dialogRef.current
@@ -553,9 +566,10 @@ export function NewsApp({
     { section: 'groups', label: t.groups, icon: UsersRound },
     { section: 'notifications', label: t.notifications, icon: Bell },
     { section: 'saved', label: t.saved, icon: Bookmark },
+    { section: 'leaderboard', label: t.leaderboard, icon: Award },
     { section: 'profile', label: t.profile, icon: UserRound },
   ]
-  const activeSectionLabel = navigation.find(({ section }) => section === activeSection)?.label ?? t.news
+  const activeSectionLabel = activeSection === 'creator-stats' ? t.creatorStats : navigation.find(({ section }) => section === activeSection)?.label ?? t.news
   const filterLabel: Record<Category, string> = {
     all: t.filterAll,
     server: t.server,
@@ -702,9 +716,10 @@ export function NewsApp({
                 <span className="sort-button">
                   <Clock3 aria-hidden="true" /><span>{t.latest}</span><ChevronDown aria-hidden="true" />
                 </span>
+                <button className="utility-button reading-mode-toggle" type="button" aria-pressed={readingMode} onClick={() => setReadingMode((enabled) => !enabled)}><Moon aria-hidden="true" /><span>{locale === 'ar' ? (readingMode ? 'إيقاف وضع القراءة الليلي' : 'وضع القراءة الليلي') : (readingMode ? 'Exit night reading' : 'Night reading')}</span></button>
               </div>
 
-              <div className="news-list" aria-live="polite">
+              <div className={`news-list${readingMode ? ' reading-mode' : ''}`} aria-live="polite">
                 {visiblePosts.length ? visiblePosts.map((post, index) => (
                   <article className={`news-card ${post.pinned ? 'news-card-pinned' : ''} ${post.accentColor ? 'news-card-accented' : ''}`} style={post.accentColor ? { '--post-accent': sanitizeCalmColor(post.accentColor) ?? 'transparent' } as CSSProperties : undefined} id={`news-${post.id}`} key={post.id}>
                     {post.coverUrl ? (
@@ -728,7 +743,7 @@ export function NewsApp({
                         <time dateTime={post.createdAt}>{relativeTime(post.createdAt, locale)}</time>
                       </div>
                       <h2><a className="news-title-link" href={`/#news-${post.id}`}>{post.title}</a></h2>
-                      <p className="post-excerpt"><RichText text={post.body} /></p>
+                      <p className="post-excerpt"><RichText text={post.body} /></p><TranslateText text={post.body} locale={locale} />
                       {newsPolls?.polls.filter((poll) => poll.contentId === post.id).map((poll) => <PollCard key={poll.id} poll={poll} locale={locale} canVote={Boolean(currentUser)} onSignIn={() => window.location.assign(loginHref)} onVote={(updated) => void mutateNewsPolls((current) => updatePollResponse(current, updated), false)} />)}
                       {post.tags.length > 0 && <div className="tag-row">{post.tags.map((tag) => <a className="post-tag" key={tag} href={`/tags/${encodeURIComponent(tag)}?lang=${locale}`}>#{tag}</a>)}</div>}
                       <div className="post-footer">
@@ -754,12 +769,19 @@ export function NewsApp({
               <div className="feed-column">
                 {activeSection === 'reels' && <ReelsSection locale={locale} viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} initialReels={reels} onSignIn={() => window.location.assign(loginHref)} onCreateContent={checkContentMembership} onMembershipRequired={() => setJoinModalOpen(true)} onReelPublished={(reel, xp) => { setReels((current) => [reel, ...current]); setProfileReels((current) => [reel, ...current]); if (xp !== null) setCurrentUser((user) => user ? { ...user, xp } : user) }}
  />}
-                {activeSection === 'stories' && <StoriesSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} onCreateContent={checkContentMembership} onMembershipRequired={() => setJoinModalOpen(true)} />}
+                {activeSection === 'stories' && <StoriesSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => {
+                  const url = new URL(window.location.href)
+                  const returnTo = `${url.pathname}${url.search}${url.hash}`
+                  window.location.assign(`/auth/login?returnTo=${encodeURIComponent(returnTo)}`)
+                }} onCreateContent={checkContentMembership} onMembershipRequired={() => setJoinModalOpen(true)} />}
                 {activeSection === 'search' && <DatabaseSearchSection query={query} onQueryChange={setQuery} locale={locale} />}
                 {activeSection === 'messages' && <DirectMessagesSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} initialMessageTo={initialMessageTo} />}
                 {activeSection === 'groups' && <GroupsSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} />}
                 {activeSection === 'notifications' && <NotificationsSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} onSignIn={() => window.location.assign(loginHref)} />}
                 {activeSection === 'saved' && <SavedSection viewer={currentUser ? { ...currentUser, isMember: userIsMember } : null} locale={locale} />}
+                {activeSection === 'leaderboard' && <section className="section-view"><div className="section-heading"><span className="section-kicker"><Award aria-hidden="true" />{t.leaderboard}</span><h1>{t.leaderboard}</h1></div><ChallengesPanel locale={locale} mode="leaderboard" /></section>}
+                {activeSection === 'creator-stats' && currentUser && <CreatorStatsPage locale={locale} />}
+                {activeSection === 'creator-stats' && !currentUser && <section className="section-view"><div className="section-heading"><h1>{t.creatorStats}</h1><p>{isArabic ? 'سجّل الدخول لعرض إحصاءاتك الخاصة.' : 'Sign in to view your private creator stats.'}</p></div><button className="section-primary-button" type="button" onClick={() => window.location.assign(loginHref)}>{t.signIn}</button></section>}
                 {activeSection === 'profile' && currentUser && <ProfileSection profile={{ ...currentUser, ...initialProfileFlair, isMember: userIsMember }} posts={profilePosts} reels={profileReels} locale={locale} editable viewer={{ ...currentUser, isMember: userIsMember }} onSignIn={() => window.location.assign(loginHref)} onProfileSaved={(updated) => setCurrentUser((user) => user ? { ...user, ...updated } : user)} />}
                 {activeSection === 'profile' && !currentUser && <section className="section-view"><div className="section-heading"><span className="section-kicker"><UserRound aria-hidden="true" />{t.profile}</span><h1>{isArabic ? 'ابدأ ملفك بتسجيل الدخول عبر Discord' : 'Your profile starts with Discord'}</h1><p>{isArabic ? 'سجّل الدخول لعرض هويتك ومنشوراتك في المجتمع.' : 'Sign in to see your community identity and posts.'}</p></div><button className="section-primary-button" type="button" onClick={() => window.location.assign(loginHref)}>{t.signIn}<ArrowUpRight aria-hidden="true" /></button></section>}
               </div>
