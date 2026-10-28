@@ -97,4 +97,25 @@ describe('upload reservation validation', () => {
     expect(validate(reservation(), { actualSizeBytes: 2048 })).toEqual({ ok: false, reason: 'size_mismatch' })
     expect(validate(reservation({ sizeBytes: null }), { actualSizeBytes: 10 * 1024 * 1024 + 1 })).toEqual({ ok: false, reason: 'size_mismatch' })
   })
+
+  it('enforces the direct-message 10 MiB reservation limit', () => {
+    const dmPath = buildUploadPath('dm', USER_ID, '22222222-2222-4222-8222-222222222222', 'image/png')
+    const dmReservation = createUploadReservation({
+      userId: USER_ID,
+      kind: 'dm',
+      pathname: dmPath,
+      contentType: 'image/png',
+      sizeBytes: 10 * 1024 * 1024,
+      now: NOW,
+    })
+    const validateDm = (value: unknown) => validateUploadReservation(value, {
+      userId: USER_ID,
+      kind: 'dm',
+      pathname: dmPath,
+      now: NOW,
+    })
+
+    expect(validateDm(dmReservation).ok).toBe(true)
+    expect(validateDm({ ...dmReservation, sizeBytes: 10 * 1024 * 1024 + 1 })).toEqual({ ok: false, reason: 'size_exceeded' })
+  })
 })

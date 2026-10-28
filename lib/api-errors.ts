@@ -41,7 +41,9 @@ function getErrorDetails(error: unknown) {
 }
 
 export function safeApiFailureReason(error: unknown) {
-  const { code } = getErrorDetails(error)
+  const { code, message } = getErrorDetails(error)
+  if (/^Vercel Blob: Failed to fetch blob: 403\b/.test(message)) return 'storage_access_denied'
+  if (/^Vercel Blob: Failed to fetch blob: 5\d\d\b/.test(message)) return 'storage_unavailable'
   if (!code) return 'query_error'
   if (code.startsWith('08') || ['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'ETIMEDOUT'].includes(code)) return 'db_connection'
   return SAFE_DATABASE_REASONS[code] ?? 'query_error'

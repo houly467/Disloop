@@ -1,6 +1,7 @@
 import { and, arrayContains, desc, eq, lt, or } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { disloopDailyPosts, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
+import { isNewAccount } from '@/lib/new-account'
 
 export type DailyPost = {
   id: string
@@ -13,6 +14,7 @@ export type DailyPost = {
   authorUsername: string
   authorAvatar: string | null
   authorCreatedAt: string | null
+  authorIsNewAccount: boolean
   authorNameStyle: string | null
   authorCustomTitle: string | null
 }
@@ -41,6 +43,7 @@ export async function getDailyPostsByTag(tag: string) {
     ...post,
     createdAt: post.createdAt.toISOString(),
     authorCreatedAt: post.authorCreatedAt?.toISOString() ?? null,
+    authorIsNewAccount: isNewAccount(post.authorCreatedAt),
     authorName: post.authorName ?? 'Community member',
     authorUsername: post.authorUsername ?? 'community-member',
   }))
@@ -74,6 +77,7 @@ export async function getDailyPosts(before?: { createdAt: Date; id: string }) {
       ...post,
       createdAt: post.createdAt.toISOString(),
       authorCreatedAt: post.authorCreatedAt?.toISOString() ?? null,
+      authorIsNewAccount: isNewAccount(post.authorCreatedAt),
       authorName: post.authorName ?? 'Community member',
       authorUsername: post.authorUsername ?? 'community-member',
     } satisfies DailyPost)),

@@ -13,6 +13,7 @@ import { extractTags } from '@/lib/tags'
 import { findMentionUsernames, notifyMentions } from '@/lib/social'
 import { isUuid } from '@/lib/dm'
 import { rateLimitResponse } from '@/lib/rate-limit'
+import { isNewAccount } from '@/lib/new-account'
 import { parseJsonBody } from '@/lib/validation'
 import { z } from 'zod'
 import { isPrivateMediaUrlForUser, isPublicBlobUrlForUser } from '@/lib/private-media'
@@ -49,6 +50,7 @@ export async function GET(request: NextRequest) {
         authorName: disloopUsers.displayName,
         authorUsername: disloopUsers.usernameDisplay,
         authorAvatar: disloopUsers.avatarUrl,
+        authorCreatedAt: disloopUsers.createdAt,
         authorNameStyle: disloopUserFlair.nameStyle,
         authorCustomTitle: disloopUserFlair.customTitle,
       }).from(disloopStories)
@@ -62,7 +64,7 @@ export async function GET(request: NextRequest) {
     const visible = await visibleStories(stories, viewer?.id ?? null)
     return NextResponse.json({
       ...feed,
-      stories: visible.map((story) => ({ ...story, createdAt: story.createdAt.toISOString(), expiresAt: story.expiresAt.toISOString() })),
+      stories: visible.map((story) => ({ ...story, authorCreatedAt: story.authorCreatedAt.toISOString(), authorIsNewAccount: isNewAccount(story.authorCreatedAt), createdAt: story.createdAt.toISOString(), expiresAt: story.expiresAt.toISOString() })),
     }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     return NextResponse.json(apiFailurePayload('daily_feed_failed', error, 'GET /api/daily'), { status: 500 })
@@ -98,7 +100,7 @@ export async function POST(request: NextRequest) {
       .returning({ id: disloopDailyPosts.id, authorId: disloopDailyPosts.authorId, body: disloopDailyPosts.body, mediaUrl: disloopDailyPosts.mediaUrl, tags: disloopDailyPosts.tags, createdAt: disloopDailyPosts.createdAt })
     await notifyMentions(body, user.id, 'daily', post.id).catch(() => undefined)
     const xp = await awardXp(user.id, 8, 'daily_post', `daily:${post.id}`).catch(() => null)
-    return NextResponse.json({ post: { ...post, createdAt: post.createdAt.toISOString(), authorName: user.displayName, authorUsername: user.username, authorAvatar: user.avatarUrl, authorCreatedAt: user.accountCreatedAt }, xp }, { status: 201 })
+    return NextResponse.json({ post: { ...post, createdAt: post.createdAt.toISOString(), authorName: user.displayName, authorUsername: user.username, authorAvatar: user.avatarUrl, authorCreatedAt: user.accountCreatedAt, authorIsNewAccount: isNewAccount(user.accountCreatedAt) }, xp }, { status: 201 })
   } catch (error) {
     return NextResponse.json(apiFailurePayload('daily_post_failed', error, 'POST /api/daily'), { status: 500 })
   }

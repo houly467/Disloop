@@ -41,4 +41,13 @@ const UPLOAD_ID = '22222222-2222-4222-8222-222222222222'
     expect(UPLOAD_CONFIG.avatar.maximumSizeInBytes).toBe(5 * 1024 * 1024)
     expect(UPLOAD_CONFIG.banner.maximumSizeInBytes).toBe(8 * 1024 * 1024)
   })
+
+  it('allows common image types for direct messages and caps images at 10 MiB', () => {
+    expect(UPLOAD_CONFIG.dm.allowedContentTypes).toEqual(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+    expect(UPLOAD_CONFIG.dm.maximumSizeInBytes).toBe(10 * 1024 * 1024)
+    for (const [contentType, extension] of [['image/jpeg', 'jpg'], ['image/png', 'png'], ['image/webp', 'webp'], ['image/gif', 'gif']]) {
+      expect(buildUploadPath('dm', USER_ID, UPLOAD_ID, contentType)).toBe(`chat-media/${USER_ID}/${UPLOAD_ID}.${extension}`)
+    }
+    expect(() => buildUploadPath('dm', USER_ID, UPLOAD_ID, 'image/svg+xml')).toThrow('unsupported_file_type')
+  })
 })

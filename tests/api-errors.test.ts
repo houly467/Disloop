@@ -25,4 +25,11 @@ describe('API failure diagnostics', () => {
     expect(safeApiFailureReason(Object.assign(new Error('internal detail'), { code: 'XX000' })))
       .toBe('query_error')
   })
+
+  it('classifies denied and unavailable Blob fetches as storage failures', () => {
+    expect(safeApiFailureReason(new Error('Vercel Blob: Failed to fetch blob: 403 Forbidden')))
+      .toBe('storage_access_denied')
+    expect(safeApiFailureReason(new Error('Vercel Blob: Failed to fetch blob: 503 Service Unavailable')))
+      .toBe('storage_unavailable')
+  })
 })

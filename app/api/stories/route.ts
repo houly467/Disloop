@@ -12,6 +12,7 @@ import { rateLimitResponse } from '@/lib/rate-limit'
 import { parseJsonBody } from '@/lib/validation'
 import { z } from 'zod'
 import { isPrivateMediaUrlForUser, isPublicBlobUrlForUser } from '@/lib/private-media'
+import { isNewAccount } from '@/lib/new-account'
 
 function isAllowedStoryMediaUrl(value: string, userId: string) {
   return isPrivateMediaUrlForUser(value, 'daily', userId) || isPublicBlobUrlForUser(value, 'daily', userId)
@@ -31,6 +32,7 @@ export async function GET() {
       authorName: disloopUsers.displayName,
       authorUsername: disloopUsers.usernameDisplay,
       authorAvatar: disloopUsers.avatarUrl,
+      authorCreatedAt: disloopUsers.createdAt,
       authorNameStyle: disloopUserFlair.nameStyle,
       authorCustomTitle: disloopUserFlair.customTitle,
     }).from(disloopStories)
@@ -40,7 +42,7 @@ export async function GET() {
       .orderBy(desc(disloopStories.createdAt))
       .limit(30)
     const visible = await visibleStories(stories, viewer?.id ?? null)
-    return NextResponse.json({ stories: visible.map((story) => ({ ...story, createdAt: story.createdAt.toISOString(), expiresAt: story.expiresAt.toISOString() })) }, {
+    return NextResponse.json({ stories: visible.map((story) => ({ ...story, authorCreatedAt: story.authorCreatedAt.toISOString(), authorIsNewAccount: isNewAccount(story.authorCreatedAt), createdAt: story.createdAt.toISOString(), expiresAt: story.expiresAt.toISOString() })) }, {
       headers: { 'Cache-Control': 'private, no-store' },
     })
   } catch (error) {
@@ -76,7 +78,7 @@ export async function POST(request: NextRequest) {
       return [created]
     })
     const xp = await awardXp(user.id, 2, 'story_published', `story:${story.id}`).catch(() => null)
-    return NextResponse.json({ story: { ...story, closeFriendsOnly: data.closeFriendsOnly ?? false, createdAt: story.createdAt.toISOString(), expiresAt: story.expiresAt.toISOString(), authorName: user.displayName, authorUsername: user.username, authorAvatar: user.avatarUrl }, xp }, { status: 201 })
+    return NextResponse.json({ story: { ...story, closeFriendsOnly: data.closeFriendsOnly ?? false, createdAt: story.createdAt.toISOString(), expiresAt: story.expiresAt.toISOString(), authorName: user.displayName, authorUsername: user.username, authorAvatar: user.avatarUrl, authorCreatedAt: user.accountCreatedAt, authorIsNewAccount: isNewAccount(user.accountCreatedAt) }, xp }, { status: 201 })
   } catch (error) {
     if (data.closeFriendsOnly) {
       console.error('[stories] close-friends story creation unavailable', { userId: user.id, error })

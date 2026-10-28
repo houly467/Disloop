@@ -13,7 +13,7 @@ type SearchFilter = 'all' | 'members' | 'news' | 'reels' | 'hashtags'
 type SearchSectionProps = {
   posts: NewsPost[]
   members: CommunityMember[]
-  currentUser: CurrentUser | null
+  currentUser: (CurrentUser & { isNewAccount?: boolean }) | null
   query: string
   onQueryChange: (value: string) => void
   locale: Locale
@@ -58,6 +58,7 @@ export function SearchSection({ posts, members: directory, currentUser, query, o
         displayName: currentUser.displayName,
         avatarUrl: currentUser.avatarUrl,
         username: currentUser.username,
+        isNewAccount: currentUser.isNewAccount ?? false,
       })
     }
     const term = normalized.replace(/^@/, '')
@@ -109,7 +110,7 @@ export function SearchSection({ posts, members: directory, currentUser, query, o
                 {matchingMembers.slice(0, 8).map((member) => (
                   <a className="member-result" key={member.username} href={`/u/${encodeURIComponent(member.username)}`}>
                     {member.avatarUrl ? <img src={member.avatarUrl} alt="" /> : <span className="member-result-fallback"><UserRound aria-hidden="true" /></span>}
-                    <UserName userId={member.id} name={member.displayName} username={member.username} nameStyle={member.nameStyle} customTitle={member.customTitle} locale={locale} />
+                    <UserName userId={member.id} name={member.displayName} username={member.username} isNewAccount={member.isNewAccount} nameStyle={member.nameStyle} customTitle={member.customTitle} locale={locale} />
                     <ArrowUpRight aria-hidden="true" />
                   </a>
                 ))}

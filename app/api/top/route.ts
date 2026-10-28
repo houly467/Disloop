@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { topRankedContent } from '@/lib/top-ranking'
+import { isNewAccount } from '@/lib/new-account'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +20,7 @@ export async function GET() {
         coalesce(u.username_display, 'community-team') AS author_username,
         u.avatar_url AS author_avatar,
         u.id AS author_id,
+        u.created_at AS author_created_at,
         f.name_style AS author_name_style,
         f.custom_title AS author_custom_title
       FROM ranked r
@@ -45,6 +47,7 @@ export async function GET() {
         authorUsername: String(item.author_username),
         authorAvatar: item.author_avatar ? String(item.author_avatar) : null,
         authorId: item.author_id ? String(item.author_id) : null,
+        authorIsNewAccount: isNewAccount(item.author_created_at instanceof Date ? item.author_created_at : String(item.author_created_at ?? '')),
         authorNameStyle: item.author_name_style ? String(item.author_name_style) : null,
         authorCustomTitle: item.author_custom_title ? String(item.author_custom_title) : null,
       }

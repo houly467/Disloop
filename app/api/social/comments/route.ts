@@ -9,6 +9,7 @@ import { requireLoggedInServerMember } from '@/lib/server-member'
 import { rateLimitResponse } from '@/lib/rate-limit'
 import { parseJsonBody } from '@/lib/validation'
 import { z } from 'zod'
+import { isNewAccount } from '@/lib/new-account'
 
 const contentTypes = new Set<SocialContentType>(['news', 'reel', 'daily'])
 
@@ -54,6 +55,7 @@ export async function GET(request: NextRequest) {
         ...row,
         createdAt: row.createdAt.toISOString(),
         authorCreatedAt: row.authorCreatedAt?.toISOString() ?? null,
+        authorIsNewAccount: isNewAccount(row.authorCreatedAt),
         authorName: row.authorName ?? 'Disloop Community',
         authorUsername: row.authorUsername ?? 'community-team',
       })),
@@ -131,6 +133,7 @@ export async function POST(request: NextRequest) {
       authorUsername: author?.username ?? user.username,
       authorAvatar: author?.avatarUrl ?? user.avatarUrl,
       authorCreatedAt: author?.createdAt.toISOString() ?? null,
+      authorIsNewAccount: isNewAccount(author?.createdAt),
       authorNameStyle: author?.nameStyle ?? null,
       authorCustomTitle: author?.customTitle ?? null,
     } }, { status: 201 })

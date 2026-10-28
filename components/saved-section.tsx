@@ -24,6 +24,8 @@ type SavedItem = {
     authorName: string | null
     authorUsername: string | null
     authorAvatar: string | null
+    authorCreatedAt: string
+    authorIsNewAccount: boolean
     authorNameStyle: string | null
     authorCustomTitle: string | null
   }
@@ -70,7 +72,7 @@ export function SavedSection({ viewer, locale }: { viewer: CurrentUser | null; l
           : data?.bookmarks.length ? <>{updateError && <p className="profile-action-error" role="alert">{updateError}</p>}<div className="saved-card-grid">{data.bookmarks.map((saved) => <article className="search-post saved-content-card" key={`${saved.type}-${saved.item.id}`}>
             <div className="saved-content-author">
               {saved.item.authorAvatar ? <img src={saved.item.authorAvatar} alt="" /> : <span>{saved.item.authorName?.charAt(0) ?? '?'}</span>}
-              <a href={`/u/${encodeURIComponent(saved.item.authorUsername ?? '')}`}><UserName userId={saved.item.authorId} name={saved.item.authorName ?? 'Disloop Community'} username={saved.item.authorUsername ?? 'community-team'} nameStyle={saved.item.authorNameStyle} customTitle={saved.item.authorCustomTitle} locale={locale} /></a>
+              <a href={`/u/${encodeURIComponent(saved.item.authorUsername ?? '')}`}><UserName userId={saved.item.authorId} name={saved.item.authorName ?? 'Disloop Community'} username={saved.item.authorUsername ?? 'community-team'} isNewAccount={saved.item.authorIsNewAccount} nameStyle={saved.item.authorNameStyle} customTitle={saved.item.authorCustomTitle} locale={locale} /></a>
               <Button type="button" variant="ghost" size="icon" aria-label={copy.remove} title={copy.remove} onClick={() => void unsave(saved)}><Check aria-hidden="true" /></Button>
             </div>
             {saved.type === 'news'

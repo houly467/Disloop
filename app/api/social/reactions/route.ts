@@ -7,6 +7,7 @@ import { getCurrentUser } from '@/lib/session'
 import { isUuid } from '@/lib/dm'
 import { getClientRateLimitKey } from '@/lib/security'
 import { rateLimitResponse } from '@/lib/rate-limit'
+import { isNewAccount } from '@/lib/new-account'
 
 const contentTypes = new Set(['news', 'reel', 'daily'])
 
@@ -25,6 +26,7 @@ export async function GET(request: NextRequest) {
       name: disloopUsers.displayName,
       username: disloopUsers.usernameDisplay,
       avatarUrl: disloopUsers.avatarUrl,
+      accountCreatedAt: disloopUsers.createdAt,
       nameStyle: disloopUserFlair.nameStyle,
       customTitle: disloopUserFlair.customTitle,
       hideLikes: disloopUsers.hideLikes,
@@ -47,7 +49,7 @@ export async function GET(request: NextRequest) {
             .leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id))
             .where(and(eq(disloopLikes.contentType, type), eq(disloopLikes.contentId, contentId), sql`${disloopUsers.hideLikes} = false OR ${disloopUsers.id} = ${viewer?.id ?? null}`))
             .orderBy(desc(sql`exists (select 1 from ${disloopFollows} f where f.follower_id = ${viewer?.id ?? null} and f.followed_id = ${disloopUsers.id})`), desc(disloopLikes.createdAt)).limit(100)
-    return NextResponse.json({ reactions: rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })) }, { headers: { 'Cache-Control': 'private, no-store' } })
+    return NextResponse.json({ reactions: rows.map((row) => ({ ...row, isNewAccount: isNewAccount(row.accountCreatedAt), createdAt: row.createdAt.toISOString() })) }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     return NextResponse.json(apiFailurePayload('reaction_list_failed', error, 'GET /api/social/reactions'), { status: 500 })
   }

@@ -2,6 +2,7 @@ import { and, arrayContains, desc, eq, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { disloopNewsPosts, disloopProfilePins, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
 import { safeApiFailureReason } from '@/lib/api-errors'
+import { isNewAccount } from '@/lib/new-account'
 
 export type NewsPost = {
   id: string
@@ -20,6 +21,7 @@ export type NewsPost = {
   authorUsername: string
   authorAvatar: string | null
   authorCreatedAt: string | null
+  authorIsNewAccount: boolean
   authorNameStyle: string | null
   authorCustomTitle: string | null
 }
@@ -70,6 +72,7 @@ function serializePost(post: {
     ...post,
     createdAt: post.createdAt.toISOString(),
     authorCreatedAt: post.authorCreatedAt?.toISOString() ?? null,
+    authorIsNewAccount: isNewAccount(post.authorCreatedAt),
     authorName: post.authorName ?? 'Disloop Community',
     authorUsername: post.authorUsername ?? 'community-team',
   }

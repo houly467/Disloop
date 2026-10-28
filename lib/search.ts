@@ -4,6 +4,7 @@ import { disloopDailyPosts, disloopNewsPosts, disloopReels, disloopUserFlair, di
 import { getDailyPostsByTag } from '@/lib/daily'
 import { getNewsPostsByTag } from '@/lib/news'
 import { getReels } from '@/lib/reels'
+import { isNewAccount } from '@/lib/new-account'
 
 export async function searchCommunity(rawQuery: string) {
   const query = rawQuery.trim().slice(0, 100)
@@ -12,7 +13,7 @@ export async function searchCommunity(rawQuery: string) {
   if (!term) return { members: [], posts: [], dailyPosts: [], reels: [], hashtags: [] }
   const pattern = `%${term.replace(/[\\%_]/g, '\\$&')}%`
   const [members, posts, dailyPosts, reels, hashtags] = await Promise.all([
-    db.select({ id: disloopUsers.id, username: disloopUsers.usernameDisplay, displayName: disloopUsers.displayName, avatarUrl: disloopUsers.avatarUrl, nameStyle: disloopUserFlair.nameStyle, customTitle: disloopUserFlair.customTitle })
+    db.select({ id: disloopUsers.id, username: disloopUsers.usernameDisplay, displayName: disloopUsers.displayName, avatarUrl: disloopUsers.avatarUrl, accountCreatedAt: disloopUsers.createdAt, nameStyle: disloopUserFlair.nameStyle, customTitle: disloopUserFlair.customTitle })
       .from(disloopUsers).leftJoin(disloopUserFlair, eq(disloopUserFlair.userId, disloopUsers.id)).where(and(eq(disloopUsers.isSeed, false), or(ilike(disloopUsers.usernameDisplay, pattern), ilike(disloopUsers.displayName, pattern), ilike(disloopUsers.discordUsername, pattern))))
       .orderBy(desc(disloopUsers.xp)).limit(12),
     db.select({ id: disloopNewsPosts.id, title: disloopNewsPosts.title, body: disloopNewsPosts.body, tags: disloopNewsPosts.tags, createdAt: disloopNewsPosts.createdAt })
@@ -31,10 +32,10 @@ export async function searchCommunity(rawQuery: string) {
     .filter((tag) => tag.toLocaleLowerCase().includes(term.toLocaleLowerCase())).slice(0, 12)
 
   return {
-    members,
+    members: members.map((member) => ({ ...member, isNewAccount: isNewAccount(member.accountCreatedAt) })),
     posts: posts.map((post) => ({ ...post, createdAt: post.createdAt.toISOString() })),
     dailyPosts: dailyPosts.map((post) => ({ ...post, createdAt: post.createdAt.toISOString() })),
-    reels: reels.map((reel) => ({ ...reel, createdAt: reel.createdAt.toISOString() })),
+    reels: reels.map((reel) => ({ ...reel, authorIsNewAccount: isNewAccount(reel.authorCreatedAt), createdAt: reel.createdAt.toISOString() })),
     hashtags: uniqueTags,
   }
 }
