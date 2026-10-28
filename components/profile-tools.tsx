@@ -19,6 +19,7 @@ type StatsResponse = {
   available?: boolean
 }
 type VerificationResponse = { requests: { id: string; reason: string; status: string; createdAt: string }[]; available: boolean }
+type VerificationRequest = VerificationResponse['requests'][number]
 type Period = '7d' | '30d'
 
 const copy = {
@@ -31,6 +32,9 @@ const copy = {
     reason: 'Why should your account be verified?', reasonHelp: 'Write between 20 and 500 characters.',
     submit: 'Submit request', noRequests: 'No requests yet.', error: 'Could not save this change.',
     status: 'Status', open: 'Open', approved: 'Approved', rejected: 'Rejected', characterCount: 'characters',
+    reviewSoon: 'We will review your request soon.', verified: 'Your account is verified.',
+    rejectedAgain: 'Your request was rejected. You can submit a new request.',
+    requestAgain: 'Request again',
     openStats: 'Open stats page', emptyStats: 'Your stats will appear here as your community grows.',
     change: 'vs previous period', new: 'New', up: 'Up', down: 'Down', same: 'No change',
     invalidMusic: 'Use a secure link from YouTube, Spotify, SoundCloud, or Apple Music.',
@@ -45,6 +49,9 @@ const copy = {
     reasonHelp: 'اكتب ما بين ٢٠ و٥٠٠ حرف.', submit: 'إرسال الطلب', noRequests: 'لا توجد طلبات بعد.',
     error: 'تعذر حفظ التغيير.', status: 'الحالة', open: 'مفتوح', approved: 'مقبول', rejected: 'مرفوض',
     characterCount: 'حرفًا', openStats: 'فتح صفحة الإحصاءات', emptyStats: 'ستظهر إحصاءاتك هنا مع نمو مجتمعك.',
+    reviewSoon: 'سنراجع طلبك قريبًا.', verified: 'تم توثيق حسابك.',
+    rejectedAgain: 'تم رفض طلبك. يمكنك إرسال طلب جديد.',
+    requestAgain: 'إعادة الطلب',
     change: 'مقارنة بالفترة السابقة', new: 'جديد', up: 'ارتفاع', down: 'انخفاض', same: 'لا تغيير',
     invalidMusic: 'استخدم رابطًا آمنًا من YouTube أو Spotify أو SoundCloud أو Apple Music.',
   },
@@ -74,7 +81,7 @@ function Sparkline({ previous, current }: { previous: number; current: number })
   </svg>
 }
 
-function StatDashboard({ data, locale, period, compact = false }: { data: StatsResponse | undefined; locale: Locale; period: Period; compact?: boolean }) {
+export function StatDashboard({ data, locale, period, compact = false }: { data: StatsResponse | undefined; locale: Locale; period: Period; compact?: boolean }) {
   const text = copy[locale]
   const current = period === '7d' ? data?.last7Days : data?.last30Days
   const previous = period === '7d' ? data?.previous7Days : data?.previous30Days
@@ -120,6 +127,26 @@ function PeriodSwitch({ period, onChange, locale }: { period: Period; onChange: 
   </div>
 }
 
+export function VerificationRequestStatus({ request, locale, onRequestAgain }: {
+  request: VerificationRequest
+  locale: Locale
+  onRequestAgain?: () => void
+}) {
+  const text = copy[locale]
+  const status = request.status === 'approved' ? 'approved' : request.status === 'rejected' ? 'rejected' : 'open'
+  const description = status === 'approved' ? text.verified : status === 'rejected' ? text.rejectedAgain : text.reviewSoon
+  return <div className="verification-request-status">
+    <div className="verification-request-summary">
+      <span className={`verification-status-badge is-${status}`}>
+        {text[status]}
+      </span>
+      <time dateTime={request.createdAt}>{new Date(request.createdAt).toLocaleDateString(locale === 'ar' ? 'ar' : 'en')}</time>
+    </div>
+    <p className="profile-tool-help">{description}</p>
+    {status === 'rejected' && onRequestAgain && <Button type="button" variant="outline" onClick={onRequestAgain}>{text.requestAgain}</Button>}
+  </div>
+}
+
 export function ProfileTools({ locale }: { locale: Locale }) {
   const text = copy[locale]
   const { data: preferences, mutate: mutatePreferences } = useSWR<PreferencesResponse>('/api/profile/preferences', fetchJson)
@@ -132,6 +159,8 @@ export function ProfileTools({ locale }: { locale: Locale }) {
   const [errorMessage, setErrorMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [period, setPeriod] = useState<Period>('7d')
+  const [requestAgain, setRequestAgain] = useState(false)
+  const [toolsOpen, setToolsOpen] = useState(true)
   const reasonRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -143,6 +172,10 @@ export function ProfileTools({ locale }: { locale: Locale }) {
   useEffect(() => {
     document.querySelector('.profile-view')?.setAttribute('data-profile-theme', theme)
   }, [theme])
+
+  useEffect(() => {
+    if (window.matchMedia('(max-width: 767px)').matches) setToolsOpen(false)
+  }, [])
 
   useEffect(() => {
     const textarea = reasonRef.current
@@ -188,6 +221,7 @@ export function ProfileTools({ locale }: { locale: Locale }) {
       })
       if (!response.ok) throw new Error('submit_failed')
       setReason('')
+      setRequestAgain(false)
       await mutateVerification()
       setMessage(text.saved)
     } catch {
@@ -219,10 +253,17 @@ export function ProfileTools({ locale }: { locale: Locale }) {
   }
 
   const requests = verification?.requests ?? []
-  const activeRequest = requests[0]
+  const activeRequest = requests.find((request) => request.status === 'open') ?? requests[0]
   const hasOpenRequest = requests.some((request) => request.status === 'open')
+  const hasSubmittedRequest = activeRequest && activeRequest.status !== 'rejected'
 
-  return <details className="profile-tools-disclosure" open>
+  return <>
+    {preferences?.preferences.profileLink && <ProfileMusicPlayer
+      url={preferences.preferences.profileLink}
+      locale={locale}
+      onRemove={() => void removeMusic()}
+    />}
+    <details className="profile-tools-disclosure" open={toolsOpen} onToggle={(event) => setToolsOpen(event.currentTarget.open)}>
     <summary>{text.tools}</summary>
     <div className="profile-tools" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
       <section className="profile-tool-card">
@@ -238,11 +279,6 @@ export function ProfileTools({ locale }: { locale: Locale }) {
             <small className="profile-tool-help">{text.linkHelp}</small>
           </label>
           <Button type="button" variant="default" disabled={busy} onClick={() => void savePreferences()}>{text.save}</Button>
-          {preferences?.preferences.profileLink && <ProfileMusicPlayer
-            url={preferences.preferences.profileLink}
-            locale={locale}
-            onRemove={() => void removeMusic()}
-          />}
         </>}
       </section>
 
@@ -250,19 +286,18 @@ export function ProfileTools({ locale }: { locale: Locale }) {
         <h2>{text.creator}</h2>
         <PeriodSwitch period={period} onChange={setPeriod} locale={locale} />
         <StatDashboard data={stats} locale={locale} period={period} compact />
-        <Button type="button" variant="outline" onClick={() => window.location.assign('/?section=creator-stats')}>{text.openStats}</Button>
+        <Button className="creator-open-stats-button" type="button" variant="outline" onClick={() => window.location.assign('/?section=creator-stats')}>{text.openStats}</Button>
       </section>
 
       <section className="profile-tool-card">
         <h2>{text.request}</h2>
         {verification?.available === false ? <p className="profile-tool-help">{text.unavailable}</p> : <>
-          {activeRequest && <div className="verification-request-summary">
-            <span className={`verification-status-badge is-${activeRequest.status}`}>
-              {text[activeRequest.status === 'open' ? 'open' : activeRequest.status === 'approved' ? 'approved' : 'rejected']}
-            </span>
-            <time dateTime={activeRequest.createdAt}>{new Date(activeRequest.createdAt).toLocaleDateString(locale === 'ar' ? 'ar' : 'en')}</time>
-          </div>}
-          {!hasOpenRequest && <form className="verification-request-form" onSubmit={(event) => { event.preventDefault(); void submitVerification() }}>
+          {activeRequest && !requestAgain && <VerificationRequestStatus
+            request={activeRequest}
+            locale={locale}
+            onRequestAgain={activeRequest.status === 'rejected' && !hasOpenRequest ? () => setRequestAgain(true) : undefined}
+          />}
+          {!hasOpenRequest && (!hasSubmittedRequest || requestAgain) && <form className="verification-request-form" onSubmit={(event) => { event.preventDefault(); void submitVerification() }}>
             <label htmlFor="verification-reason">{text.reason}
               <textarea
                 id="verification-reason"
@@ -277,7 +312,7 @@ export function ProfileTools({ locale }: { locale: Locale }) {
             </label>
             <div className="verification-form-footer">
               <small id="verification-reason-count" aria-live="polite">{reason.length}/500 {text.characterCount}</small>
-              <Button type="submit" variant="default" disabled={busy || reason.trim().length < 20}>{text.submit}</Button>
+              <Button className="verification-submit-button" type="submit" variant="default" disabled={busy || reason.trim().length < 20}>{text.submit}</Button>
             </div>
           </form>}
           {!requests.length && <p className="profile-tool-help">{text.noRequests}</p>}
@@ -285,7 +320,8 @@ export function ProfileTools({ locale }: { locale: Locale }) {
       </section>
     </div>
     {(message || errorMessage) && <p className={errorMessage ? 'profile-tools-message is-error' : 'profile-tools-message'} role={errorMessage ? 'alert' : 'status'}>{errorMessage || message}</p>}
-  </details>
+    </details>
+  </>
 }
 
 export function CreatorStatsPage({ locale }: { locale: Locale }) {

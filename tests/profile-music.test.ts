@@ -33,4 +33,17 @@ describe('profile music links', () => {
     expect(markup).not.toContain('<iframe')
     expect(markup).not.toContain('autoplay=1')
   })
+
+  it('keeps owner removal separate from the flexible controls row', () => {
+    const markup = renderToStaticMarkup(createElement(ProfileMusicPlayer, {
+      url: 'https://youtu.be/dQw4w9WgXcQ',
+      locale: 'ar',
+      onRemove: () => undefined,
+    }))
+    expect(markup).toContain('class="profile-music-controls"')
+    expect(markup).toContain('profile-music-remove')
+    expect(markup).toContain('aria-label="إزالة الأغنية"')
+    expect(markup.indexOf('profile-music-remove')).toBeLessThan(markup.indexOf('class="profile-music-controls"'))
+    expect(markup.slice(markup.indexOf('class="profile-music-controls"'))).not.toContain('إزالة الأغنية')
+  })
 })

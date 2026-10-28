@@ -7,7 +7,7 @@ import { requireLoggedInServerMember } from '@/lib/server-member'
 import { getCurrentUser } from '@/lib/session'
 import { rateLimitResponse } from '@/lib/rate-limit'
 import { parseJsonBody } from '@/lib/validation'
-import { sanitizeVerificationReason, selectVerificationWebhook } from '@/lib/verification'
+import { deliverVerificationWebhook, getVerificationWebhooks, sanitizeVerificationReason } from '@/lib/verification'
 import { z } from 'zod'
 
 export async function GET() {
@@ -48,47 +48,36 @@ export async function POST(request: NextRequest) {
     .slice(0, 500)
   */
   if (reason.length < 20) return NextResponse.json({ error: 'invalid_reason' }, { status: 400 })
-  const webhook = selectVerificationWebhook()
-  if (!webhook) return NextResponse.json({ error: 'verification_unavailable' }, { status: 503 })
-  let savedRequestId: string | null = null
   try {
     const [existing] = await db.select({ id: disloopVerificationRequests.id }).from(disloopVerificationRequests)
       .where(and(eq(disloopVerificationRequests.userId, access.user.id), eq(disloopVerificationRequests.status, 'open'))).limit(1)
     if (existing) return NextResponse.json({ error: 'request_already_open' }, { status: 409 })
     const [saved] = await db.insert(disloopVerificationRequests).values({ userId: access.user.id, reason })
       .returning({ id: disloopVerificationRequests.id, createdAt: disloopVerificationRequests.createdAt })
-    savedRequestId = saved.id
-    const response = await fetch(webhook, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        allowed_mentions: { parse: [] },
-        embeds: [{
-          title: 'Verification request',
-          description: reason,
-          fields: [
-            { name: 'Username', value: `@${access.user.username}` },
-            { name: 'User ID', value: access.user.id },
-            { name: 'Request ID', value: saved.id },
-          ],
-          timestamp: saved.createdAt.toISOString(),
-          footer: { text: 'Admins can use /verification to approve or reject this request.' },
-        }],
-      }),
-      cache: 'no-store',
-      signal: AbortSignal.timeout(8000),
-    })
-    if (!response.ok) throw new Error(`verification_webhook_${response.status}`)
-    return NextResponse.json({ request: { ...saved, reason, status: 'open' } }, { status: 201 })
-  } catch (error) {
-    console.error('[verification] submission failed', { userId: access.user.id, reason: safeApiFailureReason(error) })
-    if (savedRequestId) {
-      try {
-        await db.delete(disloopVerificationRequests).where(eq(disloopVerificationRequests.id, savedRequestId))
-      } catch (cleanupError) {
-        console.error('[verification] failed to clear an unsubmitted request', { requestId: savedRequestId, reason: safeApiFailureReason(cleanupError) })
+    const payload = {
+      allowed_mentions: { parse: [] },
+      embeds: [{
+        title: 'Verification request',
+        description: reason,
+        fields: [
+          { name: 'Username', value: `@${access.user.username}` },
+          { name: 'User ID', value: access.user.id },
+          { name: 'Request ID', value: saved.id },
+        ],
+        timestamp: saved.createdAt.toISOString(),
+        footer: { text: 'Admins can use /verification to approve or reject this request.' },
+      }],
+    }
+    let delivered = false
+    for (const webhook of getVerificationWebhooks()) {
+      if (await deliverVerificationWebhook(webhook, payload, saved.id)) {
+        delivered = true
+        break
       }
     }
+    return NextResponse.json({ request: { ...saved, reason, status: 'open' }, delivered }, { status: 201 })
+  } catch (error) {
+    console.error('[verification] submission failed', { userId: access.user.id, reason: safeApiFailureReason(error) })
     return NextResponse.json({ error: 'verification_submission_failed' }, { status: 503 })
   }
 }

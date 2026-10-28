@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useId, useRef, useState } from 'react'
-import { Music2, Pause, Play, Volume2, VolumeX } from 'lucide-react'
+import { Music2, Pause, Play, Volume2, VolumeX, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getProfileMusicEmbedUrl, getProfileMusicFallbackTitle, getProfileMusicProvider } from '@/lib/profile-music'
 
@@ -112,10 +112,19 @@ export function ProfileMusicPlayer({ url, locale, onRemove }: { url: string; loc
   if (!embedUrl) return null
 
   return <section className="profile-music-card" aria-label={text.nowPlaying} dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+    {onRemove && <Button
+      className="profile-music-remove"
+      type="button"
+      variant="ghost"
+      size="icon-xs"
+      aria-label={text.remove}
+      title={text.remove}
+      onClick={onRemove}
+    ><X aria-hidden="true" /></Button>}
     <div className="profile-music-cover">
       {metadata.thumbnailUrl ? <img src={metadata.thumbnailUrl} alt="" /> : <Music2 aria-hidden="true" />}
     </div>
-    <div className="profile-music-info">
+    <div className={`profile-music-info${onRemove ? ' has-remove' : ''}`}>
       <span className="profile-music-kicker">{text.nowPlaying}</span>
       <strong title={metadata.title}>{metadata.title}</strong>
       <small>{metadata.artist || getProfileMusicFallbackTitle(normalized)}</small>
@@ -132,9 +141,8 @@ export function ProfileMusicPlayer({ url, locale, onRemove }: { url: string; loc
         <span className="sr-only">{text.volume}</span>
         <input type="range" min="0" max="100" value={muted ? 0 : volume} disabled={!supportsRemoteVolume} onChange={(event) => updateVolume(Number(event.target.value))} aria-label={text.volume} title={supportsRemoteVolume ? text.volume : text.nativeVolume} />
       </label>
-      {onRemove && <Button type="button" variant="outline" size="sm" onClick={onRemove}>{text.remove}</Button>}
     </div>
-    {playing && <div className={`profile-music-embed is-${provider}`}>
+    {playing && <div className={`profile-music-embed is-${provider}${provider === 'youtube' || provider === 'soundcloud' ? ' is-visually-hidden-player' : ''}`}>
       <iframe ref={frameRef} src={embedUrl} title={metadata.title} allow="autoplay; encrypted-media; clipboard-write; fullscreen" loading="eager" onLoad={() => setEmbedLoaded(true)} />
       {!embedLoaded && <p>{text.loading}</p>}
     </div>}
