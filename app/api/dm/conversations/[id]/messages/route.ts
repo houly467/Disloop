@@ -3,7 +3,7 @@ import { and, desc, eq, or } from 'drizzle-orm'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { disloopDmConversations, disloopDmMessages } from '@/lib/db/schema'
-import { isMutualFollow, isUuid } from '@/lib/dm'
+import { getDirectConversationPeerId, isUuid } from '@/lib/dm'
 import { getMessageReactionSummaries, isAllowedChatMediaUrl } from '@/lib/chat'
 import { requireLoggedInServerMember } from '@/lib/server-member'
 import { getCurrentUser } from '@/lib/session'
@@ -25,8 +25,7 @@ async function getAccessibleConversation(id: string, userId: string) {
     .limit(1)
   if (!conversation) return null
 
-  const peerId = conversation.userA === userId ? conversation.userB : conversation.userA
-  return (await isMutualFollow(userId, peerId)) ? conversation : null
+  return getDirectConversationPeerId(conversation, userId) ? conversation : null
 }
 
 export async function GET(_request: NextRequest, { params }: RouteProps) {

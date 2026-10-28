@@ -3,7 +3,6 @@ import { and, eq, or } from 'drizzle-orm'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { disloopChatReactions, disloopDmConversations, disloopDmMessages, disloopGroupMembers, disloopGroupMessages } from '@/lib/db/schema'
-import { isMutualFollow } from '@/lib/dm'
 import { requireLoggedInServerMember } from '@/lib/server-member'
 import { rateLimitResponse } from '@/lib/rate-limit'
 import { parseJsonBody } from '@/lib/validation'
@@ -42,13 +41,11 @@ export async function POST(request: NextRequest) {
       const [message] = await db.select({ conversationId: disloopDmMessages.conversationId })
         .from(disloopDmMessages).where(eq(disloopDmMessages.id, messageId)).limit(1)
       if (!message) return NextResponse.json({ error: 'message_not_found' }, { status: 404 })
-      const [conversation] = await db.select({ userA: disloopDmConversations.userA, userB: disloopDmConversations.userB })
+      const [conversation] = await db.select({ id: disloopDmConversations.id })
         .from(disloopDmConversations)
         .where(and(eq(disloopDmConversations.id, message.conversationId), or(eq(disloopDmConversations.userA, user.id), eq(disloopDmConversations.userB, user.id))))
         .limit(1)
       if (!conversation) return NextResponse.json({ error: 'message_not_found' }, { status: 404 })
-      const peerId = conversation.userA === user.id ? conversation.userB : conversation.userA
-      if (!(await isMutualFollow(user.id, peerId))) return NextResponse.json({ error: 'conversation_locked' }, { status: 403 })
     } else {
       const [message] = await db.select({ groupId: disloopGroupMessages.groupId })
         .from(disloopGroupMessages).where(eq(disloopGroupMessages.id, messageId)).limit(1)

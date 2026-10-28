@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatSocialCount } from '@/lib/social-ui'
+import { formatSocialCount, getOptimisticLikeState } from '@/lib/social-ui'
 import { countWords } from '@/lib/tags'
 import { buildUploadPath, isValidUploadPath, UPLOAD_CONFIG } from '@/lib/upload-config'
 
@@ -10,6 +10,18 @@ describe('formatSocialCount', () => {
   it('keeps small counts exact', () => {
     expect(formatSocialCount(12)).toBe('12')
     expect(formatSocialCount(0)).toBe('0')
+  })
+
+  describe('getOptimisticLikeState', () => {
+    it('updates the count and liked state immediately in either direction', () => {
+      const liked = getOptimisticLikeState({ count: 4, likedByMe: false })
+      expect(liked).toEqual({ count: 5, likedByMe: true })
+      expect(getOptimisticLikeState(liked)).toEqual({ count: 4, likedByMe: false })
+    })
+
+    it('does not allow the optimistic count to become negative', () => {
+      expect(getOptimisticLikeState({ count: 0, likedByMe: true })).toEqual({ count: 0, likedByMe: false })
+    })
   })
 
   describe('social media UI rules', () => {

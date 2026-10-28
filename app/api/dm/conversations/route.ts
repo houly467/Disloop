@@ -2,8 +2,7 @@ import { apiFailurePayload } from '@/lib/api-errors'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { disloopDmConversations, disloopDmMessages, disloopFollows, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
-import { isMutualFollow } from '@/lib/dm'
+import { disloopDmConversations, disloopDmMessages, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
 import { requireLoggedInServerMember } from '@/lib/server-member'
 import { parseJsonBody } from '@/lib/validation'
 import { z } from 'zod'
@@ -24,19 +23,10 @@ export async function GET() {
 
     if (!conversations.length) return NextResponse.json({ conversations: [] }, { headers: { 'Cache-Control': 'private, no-store' } })
 
-    const allPeerIds = conversations.map((conversation) => conversation.userA === user.id ? conversation.userB : conversation.userA)
-    const followEdges = await db.select({ followerId: disloopFollows.followerId, followedId: disloopFollows.followedId })
-      .from(disloopFollows)
-      .where(or(
-        and(eq(disloopFollows.followedId, user.id), inArray(disloopFollows.followerId, allPeerIds)),
-        and(eq(disloopFollows.followerId, user.id), inArray(disloopFollows.followedId, allPeerIds)),
-      ))
-    const edgeKeys = new Set(followEdges.map((edge) => `${edge.followerId}:${edge.followedId}`))
-    const allowed = conversations.flatMap((conversation) => {
+    const allowed = conversations.map((conversation) => {
       const peerId = conversation.userA === user.id ? conversation.userB : conversation.userA
-      return edgeKeys.has(`${user.id}:${peerId}`) && edgeKeys.has(`${peerId}:${user.id}`) ? [{ conversation, peerId }] : []
+      return { conversation, peerId }
     })
-    if (!allowed.length) return NextResponse.json({ conversations: [] }, { headers: { 'Cache-Control': 'private, no-store' } })
 
     const peerIds = allowed.map((item) => item.peerId)
     const conversationIds = allowed.map((item) => item.conversation.id)
@@ -91,8 +81,6 @@ export async function POST(request: NextRequest) {
       .where(and(eq(disloopUsers.id, recipientId), eq(disloopUsers.isSeed, false)))
       .limit(1)
     if (!recipient) return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
-    if (!(await isMutualFollow(user.id, recipientId))) return NextResponse.json({ error: 'mutual_follow_required' }, { status: 403 })
-
     const [userA, userB] = [user.id, recipientId].sort()
     await db.insert(disloopDmConversations)
       .values({ userA, userB })
