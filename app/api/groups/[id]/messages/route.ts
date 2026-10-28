@@ -11,6 +11,7 @@ import { notifyMentions } from '@/lib/social'
 import { rateLimitResponse } from '@/lib/rate-limit'
 import { parseJsonBody } from '@/lib/validation'
 import { z } from 'zod'
+import { isNewAccount } from '@/lib/new-account'
 
 type RouteProps = { params: Promise<{ id: string }> }
 
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest, { params }: RouteProps) {
       .where(eq(disloopGroupMembers.groupId, id))
     await notifyMentions(body, user.id, 'chat', id, members.map(({ userId }) => userId)).catch(() => undefined)
 
-    return NextResponse.json({ message: { ...message, createdAt: message.createdAt.toISOString() } }, { status: 201 })
+    return NextResponse.json({ message: { ...message, senderName: user.displayName, senderCreatedAt: user.accountCreatedAt, senderIsNewAccount: isNewAccount(user.accountCreatedAt), senderNameStyle: null, senderCustomTitle: null, createdAt: message.createdAt.toISOString() } }, { status: 201 })
   } catch (error) {
     return NextResponse.json(apiFailurePayload('group_message_failed', error, 'POST /api/groups/[id]/messages'), { status: 500 })
   }

@@ -19,6 +19,7 @@ type Notification = {
   actorUsername: string
   actorAvatar: string | null
   actorCreatedAt: string
+  actorIsNewAccount: boolean
   actorNameStyle: string | null
   actorCustomTitle: string | null
   viewerFollowingActor: boolean
@@ -117,7 +118,7 @@ export function NotificationsSection({ viewer, locale, onSignIn }: { viewer: Cur
               <a className="notification-main" href={href} onClick={() => void markRead(first.id)}>
                 <span className="notification-icon"><Icon aria-hidden="true" /></span>
                 <span className="notification-actor-avatar">{first.actorAvatar ? <img src={first.actorAvatar} alt="" /> : <span>{first.actorName.charAt(0)}</span>}</span>
-                <span className="notification-copy"><UserName userId={first.actorId} name={first.actorName} username={first.actorUsername} createdAt={first.actorCreatedAt} nameStyle={first.actorNameStyle} customTitle={first.actorCustomTitle} locale={locale} /><span>{text}{first.groupInvite?.name ? ` · ${first.groupInvite.name}${first.groupInvite.tag ? ` · #${first.groupInvite.tag}` : ''}` : ''}</span><time dateTime={first.createdAt}>{new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(first.createdAt))}</time></span>
+                <span className="notification-copy"><UserName userId={first.actorId} name={first.actorName} username={first.actorUsername} isNewAccount={first.actorIsNewAccount} nameStyle={first.actorNameStyle} customTitle={first.actorCustomTitle} locale={locale} /><span>{text}{first.groupInvite?.name ? ` · ${first.groupInvite.name}${first.groupInvite.tag ? ` · #${first.groupInvite.tag}` : ''}` : ''}</span><time dateTime={first.createdAt}>{new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(first.createdAt))}</time></span>
                 {!first.readAt && <span className="notification-unread-dot" aria-label={locale === 'ar' ? 'غير مقروء' : 'Unread'} />}
               </a>
               {first.type === 'follow' && <button className="notification-follow-button" type="button" disabled={first.viewerFollowingActor || busyActorId === first.actorId} onClick={() => void followBack(first)}>{first.viewerFollowingActor ? labels.following : labels.followBack}</button>}

@@ -1,9 +1,10 @@
 import { apiFailurePayload } from '@/lib/api-errors'
-import { and, desc, eq, isNull, lt, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { disloopFollows, disloopGroupInvites, disloopGroups, disloopNotifications, disloopUserFlair, disloopUsers } from '@/lib/db/schema'
 import { getCurrentUser } from '@/lib/session'
+import { isNewAccount } from '@/lib/new-account'
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser()
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
       actorCustomTitle: disloopUserFlair.customTitle,
       groupInviteId: disloopGroupInvites.id,
       groupInviteExpiresAt: disloopGroupInvites.expiresAt,
+      groupInviteGroupId: disloopGroupInvites.groupId,
       groupInviteName: disloopGroups.name,
       groupInviteTag: disloopGroups.tag,
       viewerFollowingActor: sql<boolean>`exists (select 1 from ${disloopFollows} where ${disloopFollows.followerId} = ${user.id} and ${disloopFollows.followedId} = ${disloopUsers.id})`,
@@ -45,6 +47,7 @@ export async function GET(request: NextRequest) {
         eq(disloopNotifications.targetId, disloopGroupInvites.id),
         eq(disloopGroupInvites.inviteeId, user.id),
         eq(disloopGroupInvites.inviterId, disloopNotifications.actorId),
+        gt(disloopGroupInvites.expiresAt, new Date()),
       ))
       .leftJoin(disloopGroups, eq(disloopGroupInvites.groupId, disloopGroups.id))
       .where(and(...conditions))
@@ -58,16 +61,31 @@ export async function GET(request: NextRequest) {
         createdAt: row.createdAt.toISOString(),
         readAt: row.readAt?.toISOString() ?? null,
         actorCreatedAt: row.actorCreatedAt.toISOString(),
+        actorIsNewAccount: isNewAccount(row.actorCreatedAt),
         groupInvite: row.groupInviteId && row.groupInviteExpiresAt ? {
           id: row.groupInviteId,
+          groupId: row.groupInviteGroupId,
           name: row.groupInviteName,
           tag: row.groupInviteTag,
           expiresAt: row.groupInviteExpiresAt.toISOString(),
+          available: true,
+        } : row.type === 'group_invite' ? {
+          id: row.targetId,
+          groupId: null,
+          name: null,
+          tag: null,
+          expiresAt: null,
+          available: false,
         } : null,
       })),
       nextCursor: rows.length > 50 ? page.at(-1)?.createdAt.toISOString() ?? null : null,
     }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
+    const value = error && typeof error === 'object' ? error as { code?: string; cause?: { code?: string } } : null
+    const code = value?.code ?? value?.cause?.code
+    if (code === '42P01' || code === '42703') {
+      return NextResponse.json({ error: 'group_invites_unavailable', unavailable: true }, { status: 503, headers: { 'Cache-Control': 'no-store' } })
+    }
     return NextResponse.json(apiFailurePayload('notifications_failed', error, 'GET /api/notifications'), { status: 500 })
   }
 }

@@ -8,6 +8,7 @@ import { getMessageReactionSummaries } from '@/lib/chat'
 import { getCurrentUser } from '@/lib/session'
 import { requireLoggedInServerMember } from '@/lib/server-member'
 import { rateLimitResponse } from '@/lib/rate-limit'
+import { isNewAccount } from '@/lib/new-account'
 
 type RouteProps = { params: Promise<{ id: string }> }
 
@@ -39,6 +40,7 @@ export async function GET(_request: NextRequest, { params }: RouteProps) {
         displayName: disloopUsers.displayName,
         username: disloopUsers.usernameDisplay,
         avatarUrl: disloopUsers.avatarUrl,
+        accountCreatedAt: disloopUsers.createdAt,
         nameStyle: disloopUserFlair.nameStyle,
         customTitle: disloopUserFlair.customTitle,
         role: disloopGroupMembers.role,
@@ -58,6 +60,7 @@ export async function GET(_request: NextRequest, { params }: RouteProps) {
         createdAt: disloopGroupMessages.createdAt,
         senderName: disloopUsers.displayName,
         senderAvatar: disloopUsers.avatarUrl,
+        senderCreatedAt: disloopUsers.createdAt,
         senderNameStyle: disloopUserFlair.nameStyle,
         senderCustomTitle: disloopUserFlair.customTitle,
       }).from(disloopGroupMessages)
@@ -73,8 +76,8 @@ export async function GET(_request: NextRequest, { params }: RouteProps) {
     return NextResponse.json({
       group,
       role: membership.role,
-      members: members.map((member) => ({ ...member, joinedAt: member.joinedAt.toISOString() })),
-      messages: orderedMessages.map((message) => ({ ...message, createdAt: message.createdAt.toISOString(), reactions: reactions.get(message.id) ?? [] })),
+      members: members.map((member) => ({ ...member, isNewAccount: isNewAccount(member.accountCreatedAt), joinedAt: member.joinedAt.toISOString() })),
+      messages: orderedMessages.map((message) => ({ ...message, senderIsNewAccount: isNewAccount(message.senderCreatedAt), createdAt: message.createdAt.toISOString(), reactions: reactions.get(message.id) ?? [] })),
     }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     return NextResponse.json(apiFailurePayload('group_load_failed', error, 'GET /api/groups/[id]'), { status: 500 })
