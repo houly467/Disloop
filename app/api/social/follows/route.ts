@@ -7,6 +7,7 @@ import { requireLoggedInServerMember } from '@/lib/server-member'
 import { areUsersBlocked } from '@/lib/relationship-access'
 import { apiFailurePayload } from '@/lib/api-errors'
 import { getFollowCounts } from '@/lib/social-follows'
+import { isNewAccount } from '@/lib/new-account'
 
 export async function GET(request: NextRequest) {
   const access = await requireLoggedInServerMember(request)
@@ -25,6 +26,7 @@ export async function GET(request: NextRequest) {
       username: disloopUsers.usernameDisplay,
       displayName: disloopUsers.displayName,
       avatarUrl: sql<string | null>`coalesce(${disloopUsers.profileAvatarUrl}, ${disloopUsers.avatarUrl})`,
+      accountCreatedAt: disloopUsers.createdAt,
       nameStyle: disloopUserFlair.nameStyle,
       customTitle: disloopUserFlair.customTitle,
     }).from(disloopFollows)
@@ -39,7 +41,7 @@ export async function GET(request: NextRequest) {
         db.select({ id: disloopFollows.followerId }).from(disloopFollows).where(and(eq(disloopFollows.followerId, access.user.id), eq(disloopFollows.followedId, row.id))).limit(1),
         db.select({ id: disloopFollows.followerId }).from(disloopFollows).where(and(eq(disloopFollows.followerId, row.id), eq(disloopFollows.followedId, access.user.id))).limit(1),
       ])
-      return { ...row, following: following.length > 0, followsYou: followsYou.length > 0 }
+      return { ...row, isNewAccount: isNewAccount(row.accountCreatedAt), following: following.length > 0, followsYou: followsYou.length > 0 }
     }))
     return NextResponse.json({ ...counts, users: relationships }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {

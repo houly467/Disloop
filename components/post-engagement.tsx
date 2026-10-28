@@ -24,15 +24,16 @@ type Comment = {
   authorUsername: string
   authorAvatar: string | null
   authorCreatedAt: string | null
+  authorIsNewAccount: boolean
   authorNameStyle: string | null
   authorCustomTitle: string | null
 }
 type CommentResponse = { comments: Comment[]; nextCursor: string | null }
 type RepostResponse = { count: number; repostedByMe: boolean }
 type LikeResponse = { count: number; likedByMe: boolean }
-type Reaction = { userId: string; name: string; username: string; avatarUrl: string | null; createdAt: string; followsViewer: boolean; nameStyle: string | null; customTitle: string | null }
+type Reaction = { userId: string; name: string; username: string; avatarUrl: string | null; createdAt: string; isNewAccount: boolean; followsViewer: boolean; nameStyle: string | null; customTitle: string | null }
 type ReactionResponse = { reactions: Reaction[] }
-type SharePerson = { id: string; username: string; displayName: string; avatarUrl: string | null; accountCreatedAt: string; nameStyle: string | null; customTitle: string | null }
+type SharePerson = { id: string; username: string; displayName: string; avatarUrl: string | null; accountCreatedAt: string; isNewAccount: boolean; nameStyle: string | null; customTitle: string | null }
 type ShareConversation = { id: string; peer: SharePerson; lastMessage: { body: string; createdAt: string } | null; lastMessageAt: string }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -310,7 +311,7 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
       <article className={`social-comment ${rootId ? 'social-comment-reply' : ''}`} key={comment.id}>
         <div className="social-comment-avatar">{comment.authorAvatar ? <img src={comment.authorAvatar} alt="" /> : <span>{comment.authorName.charAt(0)}</span>}</div>
         <div className="social-comment-main">
-          <div className="social-comment-heading"><a href={`/u/${encodeURIComponent(comment.authorUsername)}`}><UserName userId={comment.authorId} name={comment.authorName} username={comment.authorUsername} createdAt={comment.authorCreatedAt} nameStyle={comment.authorNameStyle} customTitle={comment.authorCustomTitle} locale={locale} /></a><time dateTime={comment.createdAt}>{formatDate(comment.createdAt, locale)}</time></div>
+          <div className="social-comment-heading"><a href={`/u/${encodeURIComponent(comment.authorUsername)}`}><UserName userId={comment.authorId} name={comment.authorName} username={comment.authorUsername} isNewAccount={comment.authorIsNewAccount} nameStyle={comment.authorNameStyle} customTitle={comment.authorCustomTitle} locale={locale} /></a><time dateTime={comment.createdAt}>{formatDate(comment.createdAt, locale)}</time></div>
           <p><RichText text={comment.body} /></p><TranslateText text={comment.body} locale={locale} />
           <div className="social-comment-controls">
             {comment.isPinned && <span className="comment-pinned-pill"><Pin aria-hidden="true" />{copy.pinned}</span>}
@@ -402,7 +403,7 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
           {(reactionsLoading || blocksLoading) && <p className="reaction-sheet-empty" role="status">{locale === 'ar' ? 'جارٍ التحميل…' : 'Loading…'}</p>}
           {(reactionLoadError || blocksLoadError) && <p className="social-error" role="alert">{locale === 'ar' ? 'تعذر تحميل التفاعلات.' : 'Could not load reactions.'}</p>}
           {reactions.length ? <ul className="reaction-people-list">{reactions.map((reaction) => <li key={reaction.userId}>
-            <a href={`/u/${encodeURIComponent(reaction.username)}`}>{reaction.avatarUrl ? <img src={reaction.avatarUrl} alt="" /> : <span className="author-fallback">{reaction.name.charAt(0)}</span>}<UserName userId={reaction.userId} name={reaction.name} username={reaction.username} nameStyle={reaction.nameStyle} customTitle={reaction.customTitle} locale={locale} /></a>
+            <a href={`/u/${encodeURIComponent(reaction.username)}`}>{reaction.avatarUrl ? <img src={reaction.avatarUrl} alt="" /> : <span className="author-fallback">{reaction.name.charAt(0)}</span>}<UserName userId={reaction.userId} name={reaction.name} username={reaction.username} isNewAccount={reaction.isNewAccount} nameStyle={reaction.nameStyle} customTitle={reaction.customTitle} locale={locale} /></a>
             {viewer?.id !== reaction.userId && <button type="button" className={`reaction-follow-button ${followStatuses[reaction.userId] ? 'reaction-following' : ''}`} disabled={followBusy === reaction.userId || followStatuses[reaction.userId]} onClick={() => void followReactionUser(reaction)}>{followStatuses[reaction.userId] ? (locale === 'ar' ? 'تتابعه' : 'Following') : reaction.followsViewer ? (locale === 'ar' ? 'متابعة متبادلة' : 'Follow back') : (locale === 'ar' ? 'متابعة' : 'Follow')}</button>}
           </li>)}</ul> : !reactionsLoading && !blocksLoading && !reactionLoadError && !blocksLoadError && <p className="reaction-sheet-empty">{locale === 'ar' ? 'لا توجد تفاعلات بعد.' : 'No reactions yet.'}</p>}
           {error && <p className="social-error" role="alert">{error}</p>}
@@ -416,14 +417,14 @@ export function PostEngagement({ type, contentId, authorId, viewer, locale, onSi
             <h3 className="reel-share-list-heading">{locale === 'ar' ? 'محادثات حديثة' : 'Recent conversations'}</h3>
             {recentConversationsLoading && <p className="reel-share-empty" role="status">{locale === 'ar' ? 'جارٍ تحميل المحادثات…' : 'Loading recent conversations…'}</p>}
             {recentConversationsError && <p className="social-error" role="alert">{locale === 'ar' ? 'تعذر تحميل المحادثات.' : 'Could not load recent conversations.'}</p>}
-            {(recentConversations?.conversations ?? []).slice(0, 6).map((conversation) => <button key={conversation.id} type="button" disabled={shareBusy} onClick={() => void shareReel(conversation.peer, conversation.id)}><UserName userId={conversation.peer.id} name={conversation.peer.displayName} username={conversation.peer.username} nameStyle={conversation.peer.nameStyle} customTitle={conversation.peer.customTitle} locale={locale} /><small>{shareSendingId === conversation.peer.id ? (locale === 'ar' ? 'جارٍ الإرسال…' : 'Sending…') : conversation.lastMessage?.body || `@${conversation.peer.username}`}</small></button>)}
+            {(recentConversations?.conversations ?? []).slice(0, 6).map((conversation) => <button key={conversation.id} type="button" disabled={shareBusy} onClick={() => void shareReel(conversation.peer, conversation.id)}><UserName userId={conversation.peer.id} name={conversation.peer.displayName} username={conversation.peer.username} isNewAccount={conversation.peer.isNewAccount} nameStyle={conversation.peer.nameStyle} customTitle={conversation.peer.customTitle} locale={locale} /><small>{shareSendingId === conversation.peer.id ? (locale === 'ar' ? 'جارٍ الإرسال…' : 'Sending…') : conversation.lastMessage?.body || `@${conversation.peer.username}`}</small></button>)}
             {!recentConversationsLoading && !recentConversationsError && !recentConversations?.conversations.length && <p className="reel-share-empty">{locale === 'ar' ? 'لا توجد محادثات حديثة.' : 'No recent conversations yet.'}</p>}
           </>
           {shareQuery.trim().length >= 2 && <>
             <h3 className="reel-share-list-heading">{locale === 'ar' ? 'نتائج البحث' : 'Search results'}</h3>
             {sharePeopleLoading && <p className="reel-share-empty" role="status">{locale === 'ar' ? 'جارٍ البحث…' : 'Searching…'}</p>}
             {sharePeopleError && <p className="social-error" role="alert">{locale === 'ar' ? 'تعذر البحث عن الأعضاء.' : 'Could not search members.'}</p>}
-            {!sharePeopleLoading && !sharePeopleError && sharePeople?.people.length ? sharePeople.people.map((person) => <button key={person.id} type="button" disabled={shareBusy} onClick={() => void shareReel(person)}><UserName userId={person.id} name={person.displayName} username={person.username} nameStyle={person.nameStyle} customTitle={person.customTitle} locale={locale} /><small>{shareSendingId === person.id ? (locale === 'ar' ? 'جارٍ الإرسال…' : 'Sending…') : `@${person.username}`}</small></button>) : null}
+            {!sharePeopleLoading && !sharePeopleError && sharePeople?.people.length ? sharePeople.people.map((person) => <button key={person.id} type="button" disabled={shareBusy} onClick={() => void shareReel(person)}><UserName userId={person.id} name={person.displayName} username={person.username} isNewAccount={person.isNewAccount} nameStyle={person.nameStyle} customTitle={person.customTitle} locale={locale} /><small>{shareSendingId === person.id ? (locale === 'ar' ? 'جارٍ الإرسال…' : 'Sending…') : `@${person.username}`}</small></button>) : null}
             {!sharePeopleLoading && !sharePeopleError && !sharePeople?.people.length && <p className="reel-share-empty" role="status">{locale === 'ar' ? 'لم يتم العثور على أعضاء.' : 'No members found.'}</p>}
           </>}
         </div>

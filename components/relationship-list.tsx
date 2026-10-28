@@ -7,7 +7,7 @@ import { ModalPortal } from '@/components/modal-portal'
 import { UserName } from '@/components/user-name'
 import type { FollowCounts } from '@/lib/social-follows'
 
-type RelationshipUser = { id: string; username: string; displayName: string; avatarUrl: string | null; nameStyle: string | null; customTitle: string | null; following: boolean; followsYou: boolean }
+type RelationshipUser = { id: string; username: string; displayName: string; avatarUrl: string | null; isNewAccount: boolean; nameStyle: string | null; customTitle: string | null; following: boolean; followsYou: boolean }
 type RelationshipResponse = FollowCounts & { users: RelationshipUser[] }
 
 class RelationshipRequestError extends Error {
@@ -37,7 +37,7 @@ export function RelationshipList({ userId, direction }: { userId: string; direct
   return <section className="relationship-list" aria-labelledby="relationship-list-title">
     <h1 id="relationship-list-title">{direction === 'followers' ? 'Followers' : 'Following'}</h1>
     {!data?.users.length ? <p className="section-empty">No accounts here yet.</p> : <div className="relationship-list-items">{data.users.map((user) => <article className="relationship-row" key={user.id}>
-      <a href={`/u/${encodeURIComponent(user.username)}`}><span>{user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : null}</span><UserName userId={user.id} name={user.displayName} username={user.username} nameStyle={user.nameStyle} customTitle={user.customTitle} /></a>
+      <a href={`/u/${encodeURIComponent(user.username)}`}><span>{user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : null}</span><UserName userId={user.id} name={user.displayName} username={user.username} isNewAccount={user.isNewAccount} nameStyle={user.nameStyle} customTitle={user.customTitle} /></a>
       <div className="relationship-actions">{direction === 'followers' && <button type="button" disabled={busy === user.id} onClick={() => void update(user, 'remove')}>Remove</button>}{!user.following && user.followsYou && <button type="button" disabled={busy === user.id} onClick={() => void update(user, 'follow')}>Follow back</button>}{user.following && <button type="button" disabled={busy === user.id} onClick={() => void update(user, 'unfollow')}>Unfollow</button>}</div>
     </article>)}</div>}
   </section>
